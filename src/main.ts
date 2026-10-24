@@ -1,20 +1,34 @@
+import {trending,searchTracks,streamUrl,type Track} from './audius';
 import * as THREE from 'three';
 import './style.css';
 
 const app=document.querySelector<HTMLDivElement>('#app')!;
-app.innerHTML=`<div id="hud"><h1>SONICVERSE</h1><p>KOZMİK EVREN · Müziğin içinde uç</p><div class="controls"><label class="upload">Müzik seç<input id="file" type="file" accept="audio/*,.mp3,.wav,.m4a,.ogg"></label><button id="play" disabled>Oynat</button><button id="reset">Merkeze dön</button></div><div id="song">Henüz müzik seçilmedi</div><div class="meters"><div class="meter">BAS<div class="track"><div class="fill" id="bass"></div></div></div><div class="meter">ORTA<div class="track"><div class="fill" id="mid"></div></div></div><div class="meter">TİZ<div class="track"><div class="fill" id="treble"></div></div></div></div><div id="error"></div></div><div id="hint">WASD: uç · Q/E: yüksel/alçal · Fare: bakış · Dokunmatik: sol hareket / sağ bakış</div>`;
+app.innerHTML=`<div id="hud"><h1>SONICVERSE</h1><p>KOZMİK EVREN · Müziğin içinde uç</p><div class="controls"><label class="upload">Müzik seç<input id="file" type="file" accept="audio/*,.mp3,.wav,.m4a,.ogg"></label><button id="play" disabled>Oynat</button><button id="reset">Merkeze dön</button></div><div class="discovery"><div class="searchrow"><input id="search" type="search" placeholder="Audius: şarkı veya sanatçı ara" aria-label="Müzik ara"><button id="trending">Popüler</button></div><div id="results" aria-live="polite"></div></div><div id="song">Henüz müzik seçilmedi</div><div class="meters"><div class="meter">BAS<div class="track"><div class="fill" id="bass"></div></div></div><div class="meter">ORTA<div class="track"><div class="fill" id="mid"></div></div></div><div class="meter">TİZ<div class="track"><div class="fill" id="treble"></div></div></div></div><div id="error"></div></div><div id="hint">WASD: uç · Q/E: yüksel/alçal · Fare: bakış · Dokunmatik: sol hareket / sağ bakış</div>`;
 const file=document.querySelector<HTMLInputElement>('#file')!;
 const play=document.querySelector<HTMLButtonElement>('#play')!;
 const reset=document.querySelector<HTMLButtonElement>('#reset')!;
 const song=document.querySelector<HTMLDivElement>('#song')!;
 const error=document.querySelector<HTMLDivElement>('#error')!;
 const bars=['bass','mid','treble'].map(id=>document.getElementById(id)!);
-const audio=new Audio();audio.preload='metadata';
+const audio=new Audio();audio.preload='metadata';audio.crossOrigin='anonymous';
+const results=document.querySelector<HTMLDivElement>('#results')!;
+const search=document.querySelector<HTMLInputElement>('#search')!;
+const popular=document.querySelector<HTMLButtonElement>('#trending')!;
+let tracks:Track[]=[];let selected=-1;let controller:AbortController|undefined;
+function showError(message:string){error.textContent=message;}
+function renderTracks(items:Track[]){tracks=items;results.replaceChildren();if(!items.length){results.textContent='Uygun parça bulunamadı.';return;}items.forEach((track,index)=>{const row=document.createElement('button');row.className='result';row.type='button';const info=document.createElement('span');info.className='resultinfo';const title=document.createElement('strong');title.textContent=track.title;const artist=document.createElement('small');artist.textContent=track.artist;info.append(title,artist);if(track.artwork&&track.artwork.startsWith('https://')){const img=document.createElement('img');img.src=track.artwork;img.alt='';img.loading='lazy';row.append(img);}row.append(info);row.addEventListener('click',()=>void chooseTrack(index));results.append(row);});}
+async function loadTracks(query?:string){controller?.abort();controller=new AbortController();results.textContent='Şarkılar yükleniyor…';showError('');try{renderTracks(await(query?searchTracks(query,controller.signal):trending(controller.signal)));}catch(e){if((e as Error).name==='AbortError')return;results.textContent='Müzik kataloğuna erişilemedi.';showError(String(e));}}
+let debounce:number|undefined;
+search.addEventListener('input',()=>{clearTimeout(debounce);const q=search.value.trim();debounce=window.setTimeout(()=>void loadTracks(q||undefined),400);});
+popular.addEventListener('click',()=>{search.value='';void loadTracks();});
+async function chooseTrack(index:number){const track=tracks[index];if(!track)return;selected=index;audio.pause();if(url){URL.revokeObjectURL(url);url=undefined;}audio.crossOrigin='anonymous';audio.src=streamUrl(track.id);song.textContent=track.title+' — '+track.artist;play.disabled=false;showError('');try{await startAudio();await audio.play();play.textContent='Duraklat';}catch(e){play.textContent='Oynat';showError('Audius akışı oynatılamadı. CORS veya yayın erişimi engellenmiş olabilir: '+String(e));}}
+void loadTracks();
 let url:string|undefined,context:AudioContext|undefined,analyser:AnalyserNode|undefined,source:MediaElementAudioSourceNode|undefined,data:Uint8Array<ArrayBuffer>|undefined;
-file.addEventListener('change',()=>{const f=file.files?.[0];if(!f)return;audio.pause();if(url)URL.revokeObjectURL(url);url=URL.createObjectURL(f);audio.src=url;song.textContent=f.name;play.disabled=false;play.textContent='Oynat';error.textContent='';});
+file.addEventListener('change',()=>{const f=file.files?.[0];if(!f)return;audio.pause();if(url)URL.revokeObjectURL(url);url=URL.createObjectURL(f);selected=-1;audio.src=url;song.textContent=f.name;play.disabled=false;play.textContent='Oynat';error.textContent='';});
 async function startAudio(){if(!context){context=new AudioContext();analyser=context.createAnalyser();analyser.fftSize=2048;analyser.smoothingTimeConstant=.83;source=context.createMediaElementSource(audio);source.connect(analyser);analyser.connect(context.destination);data=new Uint8Array(new ArrayBuffer(analyser.frequencyBinCount));}await context.resume();}
 play.addEventListener('click',async()=>{try{if(audio.paused){await startAudio();await audio.play();play.textContent='Duraklat';}else{audio.pause();play.textContent='Oynat';}}catch(e){error.textContent='Ses başlatılamadı: '+String(e);}});
-audio.addEventListener('ended',()=>play.textContent='Oynat');
+audio.addEventListener('ended',()=>{play.textContent='Oynat';if(selected>=0&&tracks.length>1)void chooseTrack((selected+1)%tracks.length);});
+audio.addEventListener('error',()=>{if(audio.src)showError('Ses kaynağı yüklenemedi. Başka bir parça deneyin.');});
 const scene=new THREE.Scene();scene.background=new THREE.Color('#02040e');scene.fog=new THREE.FogExp2('#02040e',.0015);
 const camera=new THREE.PerspectiveCamera(72,innerWidth/innerHeight,.1,2200);camera.position.set(0,0,85);
 const renderer=new THREE.WebGLRenderer({antialias:true,powerPreference:'high-performance'});renderer.setPixelRatio(Math.min(devicePixelRatio,2));renderer.setSize(innerWidth,innerHeight);renderer.outputColorSpace=THREE.SRGBColorSpace;app.prepend(renderer.domElement);
@@ -42,7 +56,7 @@ const clock=new THREE.Clock();const forward=new THREE.Vector3(),right=new THREE.
 let bass=0,mid=0,treble=0;
 function energy(low:number,high:number){if(!analyser||!data||!context)return 0;const hz=context.sampleRate/analyser.fftSize;const a=Math.max(0,Math.floor(low/hz)),b=Math.min(data.length,Math.ceil(high/hz));let total=0;for(let i=a;i<b;i++)total+=data[i];return total/Math.max(1,b-a)/255;}
 function animate(){requestAnimationFrame(animate);const dt=Math.min(clock.getDelta(),.05),t=clock.elapsedTime;
-if(analyser&&data&&!audio.paused){analyser.getByteFrequencyData(data);bass=THREE.MathUtils.lerp(bass,energy(25,180),.22);mid=THREE.MathUtils.lerp(mid,energy(180,2400),.18);treble=THREE.MathUtils.lerp(treble,energy(2400,11000),.2);}else{bass*=.95;mid*=.95;treble*=.95;}
+if(analyser&&data&&!audio.paused){analyser.getByteFrequencyData(data);if(selected>=0&&audio.currentTime>3&&data.every(v=>v===0)){if(!error.textContent)showError('Ses oynuyor ancak FFT verisi sıfır. Audius akışı CORS nedeniyle analiz edilemiyor olabilir; yerel dosya kullanın.');}bass=THREE.MathUtils.lerp(bass,energy(25,180),.22);mid=THREE.MathUtils.lerp(mid,energy(180,2400),.18);treble=THREE.MathUtils.lerp(treble,energy(2400,11000),.2);}else{bass*=.95;mid*=.95;treble*=.95;}
 [bass,mid,treble].forEach((v,i)=>bars[i].style.width=(v*100).toFixed(1)+'%');
 camera.rotation.order='YXZ';camera.rotation.set(pitch,yaw,0);
 forward.set(0,0,-1).applyQuaternion(camera.quaternion);right.set(1,0,0).applyQuaternion(camera.quaternion);velocity.set(0,0,0);
