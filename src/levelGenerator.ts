@@ -7,7 +7,7 @@ function rng(seed:number){return()=>{seed=(Math.imul(seed,1664525)+1013904223)>>
 export async function analyzeAudio(buffer:ArrayBuffer,seed:number):Promise<BeatMap>{
  const context=new OfflineAudioContext(1,44100,44100);
  let decoded:AudioBuffer;
- try{decoded=await context.decodeAudioData(buffer.slice(0));}finally{void context.close?.();}
+ decoded=await context.decodeAudioData(buffer.slice(0));
  const rate=decoded.sampleRate,hop=512,window=1024;
  const channels=decoded.numberOfChannels;
  const samples=decoded.getChannelData(0);
