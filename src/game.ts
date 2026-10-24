@@ -157,6 +157,20 @@ function draw(){
   ctx.beginPath();ctx.arc(player.x+18,player.y+18,55+(1-beatFlash)*160,0,Math.PI*2);ctx.stroke();ctx.restore();
  }
  const base=ground;
+ // Anticipation cues: arrows announce the precise takeoff zones for ledges and gaps.
+ for(let i=0;i<design.terrain.length;i++){
+  const piece=design.terrain[i],previous=design.terrain[i-1];
+  if(piece.rise>0&&(!previous||previous.rise===0||previous.gap)){
+   const takeoff=piece.x-(previous?.gap?145:150);
+   const x=takeoff-distance+player.x;
+   if(x>-50&&x<w+50){
+    const y=ground-(previous?.rise??0)-15;
+    ctx.save();ctx.globalAlpha=.5+.35*Math.sin(elapsed*7)**2;ctx.strokeStyle='#ffe37a';ctx.shadowColor='#ffd84a';ctx.shadowBlur=15;ctx.lineWidth=3;
+    for(let k=0;k<3;k++){ctx.beginPath();ctx.moveTo(x+k*13,y);ctx.lineTo(x+k*13+10,y-18);ctx.lineTo(x+k*13+20,y);ctx.stroke();}
+    ctx.restore();
+   }
+  }
+ }
  // Solid platform silhouettes, raised steps and real gaps.
  for(const piece of design.terrain){
   const x=piece.x-distance+player.x;if(x+piece.w<0||x>w||piece.gap)continue;
