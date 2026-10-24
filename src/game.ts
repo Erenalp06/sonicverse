@@ -1,4 +1,4 @@
-import {analyzeAudio,fallbackBeatMap,generateLevel,hashSeed,type BeatMap} from './levelGenerator';
+import {analyzeAudio,fallbackBeatMap,designLevel,hashSeed,type BeatMap,type LevelDesign} from './levelGenerator';
 import {trending,searchTracks,streamUrl,type Track} from './audius';
 import './game.css';
 
@@ -51,6 +51,8 @@ addEventListener('resize',resize);resize();
 type Obstacle={x:number,type:'spike'|'double'|'block'|'orb';w:number,h:number,passed:boolean};
 type Particle={x:number,y:number,vx:number,vy:number,life:number,hue:number};
 let obstacles:Obstacle[]=[],particles:Particle[]=[];
+let design:LevelDesign={obstacles:[],sections:[],markers:[]};
+let musicClock=0,beatFlash=0,lastBeatIndex=-1;
 let mode:'menu'|'playing'|'paused'|'dead'|'won'='menu';
 let player={x:0,y:0,vy:0,size:36,angle:0,onGround:true};
 let distance=0,score=0,best=0,beat=0,energy=0,mid=0,treble=0,last=0,elapsed=0,shake=0;
@@ -59,7 +61,7 @@ const levelSpeed=330;
 try{best=Number(localStorage.getItem('sonicverse-best')||0)||0;}catch{}
 bestEl.textContent='REKOR '+best;
 const rand=(a:number,b:number)=>a+Math.random()*(b-a);
-function reset(){distance=0;score=0;elapsed=0;levelLength=beatMap.duration*levelSpeed;obstacles=generateLevel(beatMap,levelSpeed);particles=[];player={x:Math.min(w*.24,290),y:ground-36,vy:0,size:36,angle:0,onGround:true};shake=0;mode='playing';overlay.classList.add('hidden');}
+function reset(){distance=0;score=0;elapsed=0;levelLength=beatMap.duration*levelSpeed;design=designLevel(beatMap,levelSpeed);obstacles=design.obstacles;musicClock=0;beatFlash=0;lastBeatIndex=-1;particles=[];player={x:Math.min(w*.24,290),y:ground-36,vy:0,size:36,angle:0,onGround:true};shake=0;mode='playing';overlay.classList.add('hidden');}
 function start(){if(analyzing)return;audio.pause();try{audio.currentTime=0;}catch{}reset();if(audio.src)void unlockAudio().then(()=>audio.play()).catch(()=>{});}
 function end(won:boolean){audio.pause();mode=won?'won':'dead';overlay.classList.remove('hidden');overlay.querySelector('h1')!.innerHTML=won?'LEVEL <em>TAMAMLANDI</em>':'OYUN <em>BİTTİ</em>';message.textContent=won?'Harika! Yeni bir tur için tekrar başla.':'Skor '+score+' · Yeniden dene ve rekorunu geliştir.';$('start').textContent='TEKRAR OYNA →';if(score>best){best=score;try{localStorage.setItem('sonicverse-best',String(best));}catch{}}bestEl.textContent='REKOR '+best;}
 function jump(){if(mode==='menu'||mode==='dead'||mode==='won'){start();return;}if(mode==='paused'){mode='playing';return;}if(player.onGround){player.vy=-760;player.onGround=false;for(let i=0;i<10;i++)particles.push({x:player.x+18,y:ground,vx:rand(-130,60),vy:rand(-120,0),life:rand(.25,.6),hue:185});}}
@@ -82,8 +84,13 @@ function collide(o:Obstacle,screenX:number){
 function update(dt:number){
  elapsed+=dt;audioLevels(dt);
  if(mode!=='playing')return;
+ // The audio playhead is authoritative whenever playback is available.
+ musicClock=audio.src&&!audio.paused&&Number.isFinite(audio.currentTime)?audio.currentTime:musicClock+dt;
+ const beats=beatMap.beats;
+ for(let i=lastBeatIndex+1;i<beats.length&&beats[i].time<=musicClock;i++){beatFlash=Math.max(beatFlash,.35+beats[i].strength*.65);lastBeatIndex=i;}
+ beatFlash=Math.max(0,beatFlash-dt*3.3);
  const speed=levelSpeed;
- distance+=speed*dt;
+ distance=musicClock*speed;
  score=Math.floor(distance/8);scoreEl.textContent=String(score).padStart(5,'0');percentEl.textContent=Math.min(100,Math.floor(distance/levelLength*100))+'%';
  if(distance>=levelLength){end(true);return;}
  // Obstacles are precomputed from the song's beat map.
@@ -100,9 +107,10 @@ function polygon(x:number,y:number,r:number,sides:number,rotation=0){ctx.beginPa
 function draw(){
  ctx.clearRect(0,0,w,h);
  ctx.save();ctx.translate(rand(-shake,shake),rand(-shake,shake));
- const hue=190+energy*95;
+ const section=design.sections.find(x=>musicClock>=x.start&&musicClock<x.end)??design.sections[0];
+ const hue=(section?.hue??190)+energy*45;
  const bg=ctx.createLinearGradient(0,0,0,h);bg.addColorStop(0,'#060a20');bg.addColorStop(.6,'#111038');bg.addColorStop(1,'#070a1d');ctx.fillStyle=bg;ctx.fillRect(0,0,w,h);
- const pulse=1+beat*.32;
+ const pulse=1+beat*.32+beatFlash*.32;
  for(let layer=0;layer<3;layer++){
   const step=layer===0?90:layer===1?155:230;
   const offset=(distance*(.12+layer*.17))%step;
@@ -113,6 +121,26 @@ function draw(){
  const sunX=w*.68,sunY=ground*.42,sunR=Math.min(w*.22,190)*pulse;
  const glow=ctx.createRadialGradient(sunX,sunY,0,sunX,sunY,sunR*2);glow.addColorStop(0,`hsla(${hue+50},100%,62%,.23)`);glow.addColorStop(1,'transparent');ctx.fillStyle=glow;ctx.fillRect(sunX-sunR*2,sunY-sunR*2,sunR*4,sunR*4);
  ctx.strokeStyle=`hsla(${hue+50},100%,76%,.3)`;ctx.lineWidth=2;for(let j=0;j<4;j++){ctx.beginPath();ctx.arc(sunX,sunY,sunR*(.6+j*.2),0,Math.PI*2);ctx.stroke();}
+ // Repeating geometric architecture follows the musical bars and changes with sections.
+ for(const marker of design.markers){
+  const x=marker-distance+player.x;if(x<-160||x>w+160)continue;
+  const barIndex=Math.floor((marker-420)/(levelSpeed*60/beatMap.bpm*4));
+  const sectionAt=design.sections.find(sec=>marker>=sec.start*levelSpeed+420&&marker<sec.end*levelSpeed+420);
+  const tint=sectionAt?.hue??hue;
+  const towerHeight=85+(barIndex%3)*40+(sectionAt?.energy??.4)*110;
+  ctx.save();ctx.strokeStyle=`hsla(${tint},100%,72%,${.28+beatFlash*.27})`;ctx.lineWidth=2;
+  ctx.shadowColor=`hsl(${tint},100%,60%)`;ctx.shadowBlur=10+beatFlash*25;
+  ctx.strokeRect(x-35,ground-towerHeight,70,towerHeight);
+  ctx.beginPath();ctx.moveTo(x-48,ground-towerHeight);ctx.lineTo(x,ground-towerHeight-35);ctx.lineTo(x+48,ground-towerHeight);ctx.stroke();
+  ctx.beginPath();ctx.moveTo(x,ground-towerHeight-35);ctx.lineTo(x,ground-towerHeight-78);ctx.stroke();
+  for(let j=0;j<3;j++){ctx.beginPath();ctx.moveTo(x-35,ground-towerHeight+j*24+18);ctx.lineTo(x+35,ground-towerHeight+j*24+18);ctx.stroke();}
+  ctx.restore();
+ }
+ // Each detected beat expands a light ring around the runner.
+ if(beatFlash>.02){
+  ctx.save();ctx.globalAlpha=beatFlash*.65;ctx.strokeStyle=`hsl(${hue+90},100%,76%)`;ctx.lineWidth=3+beatFlash*5;ctx.shadowBlur=25;ctx.shadowColor='#ff69de';
+  ctx.beginPath();ctx.arc(player.x+18,player.y+18,55+(1-beatFlash)*160,0,Math.PI*2);ctx.stroke();ctx.restore();
+ }
  const base=ground;ctx.fillStyle='#0a102b';ctx.fillRect(0,base,w,h-base);ctx.shadowBlur=22;ctx.shadowColor='#31dcff';ctx.strokeStyle='#43dfff';ctx.lineWidth=3;ctx.beginPath();ctx.moveTo(0,base);ctx.lineTo(w,base);ctx.stroke();ctx.shadowBlur=0;
  const grid=60;ctx.strokeStyle='rgba(62,169,250,.13)';ctx.lineWidth=1;for(let x=-(distance*.7%grid);x<w;x+=grid){ctx.beginPath();ctx.moveTo(x,base);ctx.lineTo(x+80,h);ctx.stroke();}
  for(let y=base+30;y<h;y+=30){ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(w,y);ctx.stroke();}
@@ -124,6 +152,13 @@ function draw(){
  for(const p of particles){ctx.globalAlpha=Math.min(1,p.life*2);ctx.fillStyle=`hsl(${p.hue},100%,75%)`;ctx.fillRect(p.x,p.y,3,3);}ctx.globalAlpha=1;
  ctx.save();ctx.translate(player.x+player.size/2,player.y+player.size/2);ctx.rotate(player.angle);ctx.shadowBlur=24;ctx.shadowColor='#4defff';ctx.fillStyle='#32dcf7';ctx.strokeStyle='#c3f9ff';ctx.lineWidth=3;ctx.fillRect(-18,-18,36,36);ctx.strokeRect(-18,-18,36,36);ctx.shadowBlur=0;ctx.fillStyle='#0a1740';ctx.fillRect(-10,-10,20,20);ctx.fillStyle='#b6ffff';ctx.fillRect(0,-10,10,10);ctx.restore();
  ctx.restore();
+ // Musical phrase timeline: eight-bar sections are visibly distinct.
+ if(mode==='playing'){
+  const label=section?.kind==='drop'?'DROP':section?.kind==='build'?'YÜKSELİŞ':section?.kind==='break'?'SAKİN':section?.kind==='intro'?'GİRİŞ':'AKIŞ';
+  ctx.save();ctx.textAlign='center';ctx.font='700 13px system-ui';ctx.fillStyle=`hsla(${hue},100%,82%,.9)`;
+  ctx.fillText(`${label}  ·  ${beatMap.bpm} BPM`,w/2,Math.min(h-65,64));
+  ctx.restore();
+ }
  if(mode==='paused'){ctx.fillStyle='#03081999';ctx.fillRect(0,0,w,h);ctx.fillStyle='#fff';ctx.textAlign='center';ctx.font='bold 40px system-ui';ctx.fillText('DURAKLATILDI',w/2,h/2);}
 }
 function loop(now:number){const dt=Math.min(.033,(now-last)/1000||.016);last=now;update(dt);draw();requestAnimationFrame(loop);}
