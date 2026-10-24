@@ -2,7 +2,8 @@ export type BeatEvent={time:number;strength:number};
 export type BeatMap={duration:number;bpm:number;beats:BeatEvent[];seed:number;source:'analysis'|'fallback'};
 export type LevelObstacle={x:number;type:'spike'|'double'|'block'|'orb';w:number;h:number;passed:boolean};
 export type LevelSection={start:number;end:number;energy:number;kind:'intro'|'flow'|'build'|'drop'|'break';hue:number};
-export type LevelDesign={obstacles:LevelObstacle[];sections:LevelSection[];markers:number[]};
+export type TerrainPiece={x:number;w:number;rise:number;gap:boolean};
+export type LevelDesign={obstacles:LevelObstacle[];sections:LevelSection[];markers:number[];terrain:TerrainPiece[]};
 
 const clamp=(v:number,a:number,b:number)=>Math.max(a,Math.min(b,v));
 export function hashSeed(text:string){let h=2166136261;for(let i=0;i<text.length;i++){h^=text.charCodeAt(i);h=Math.imul(h,16777619);}return h>>>0;}
@@ -61,7 +62,7 @@ export function fallbackBeatMap(seed:number,duration=95):BeatMap{
 }
 // Eight-bar phrases form coherent musical sections instead of unrelated obstacles.
 export function designLevel(map:BeatMap,speed=330):LevelDesign{
- const random=rng(map.seed),obstacles:LevelObstacle[]=[],sections:LevelSection[]=[],markers:number[]=[];
+ const random=rng(map.seed),obstacles:LevelObstacle[]=[],sections:LevelSection[]=[],markers:number[]=[],terrain:TerrainPiece[]=[];
  const step=60/map.bpm,bar=step*4,phrase=bar*8;
  const average=(a:number,b:number)=>{let total=0,count=0;for(const beat of map.beats)if(beat.time>=a&&beat.time<b){total+=beat.strength;count++;}return count?total/count:.25;};
  const phrases=Math.ceil(map.duration/phrase);
@@ -97,6 +98,36 @@ export function designLevel(map:BeatMap,speed=330):LevelDesign{
   }
   for(let t=section.start;t<section.end;t+=bar)markers.push(t*speed+420);
  }
- return {obstacles,sections,markers};
+ // Designed terrain phrases: flat run-up -> elevated ledge -> short jump gap -> landing.
+ // Each motif is separated by a long recovery runway; no obstacle is placed on a transition.
+ const worldEnd=map.duration*speed+900;
+ const motifWidth=2200;
+ for(let x=0,part=0;x<worldEnd;x+=motifWidth,part++){
+  const section=sections.find(sec=>x>=sec.start*speed&&x<sec.end*speed);
+  const variant=(part+Math.floor(random()*3))%3;
+  const rise=variant===0?75:variant===1?110:90;
+  const safeStart=x+650;
+  const gapWidth=variant===1?95:80;
+  terrain.push({x,w:650,rise:0,gap:false});
+  terrain.push({x:safeStart,w:450,rise,gap:false});
+  terrain.push({x:safeStart+450,w:gapWidth,rise:0,gap:true});
+  terrain.push({x:safeStart+450+gapWidth,w:400,rise,gap:false});
+  const tail=safeStart+450+gapWidth+400;
+  terrain.push({x:tail,w:x+motifWidth-tail,rise:0,gap:false});
+  // Only the safe, flat sections receive obstacles.
+  void section;
+ }
+ const nearTransition=(x:number)=>terrain.some(p=>p.gap?x>p.x-200&&x<p.x+p.w+210:p.rise>0&&x>p.x-115&&x<p.x+p.w+115);
+ const safeObstacles=obstacles.filter(o=>!nearTransition(o.x-420));
+ // Place a few rhythmic accents on the elevated landing, after the player can settle.
+ for(let i=0;i<terrain.length;i++){
+  const piece=terrain[i];
+  if(piece.rise>0&&piece.w>=400&&i>0&&terrain[i-1].gap){
+   const x=piece.x+piece.w-90+420;
+   if(x<worldEnd-600)safeObstacles.push({x,type:'spike',w:42,h:42,passed:false});
+  }
+ }
+ safeObstacles.sort((a,b)=>a.x-b.x);
+ return {obstacles:safeObstacles,sections,markers,terrain};
 }
 export function generateLevel(map:BeatMap,speed=330):LevelObstacle[]{return designLevel(map,speed).obstacles;}
