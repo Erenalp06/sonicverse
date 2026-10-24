@@ -51,8 +51,9 @@ addEventListener('resize',resize);resize();
 type Obstacle={x:number,type:'spike'|'double'|'block'|'orb';w:number,h:number,passed:boolean};
 type Particle={x:number,y:number,vx:number,vy:number,life:number,hue:number};
 let obstacles:Obstacle[]=[],particles:Particle[]=[];
-let design:LevelDesign={obstacles:[],sections:[],markers:[]};
+let design:LevelDesign={obstacles:[],sections:[],markers:[],terrain:[]};
 let musicClock=0,beatFlash=0,lastBeatIndex=-1;
+let verticalCamera=0;
 let mode:'menu'|'playing'|'paused'|'dead'|'won'='menu';
 let player={x:0,y:0,vy:0,size:36,angle:0,onGround:true};
 let distance=0,score=0,best=0,beat=0,energy=0,mid=0,treble=0,last=0,elapsed=0,shake=0;
@@ -61,7 +62,7 @@ const levelSpeed=330;
 try{best=Number(localStorage.getItem('sonicverse-best')||0)||0;}catch{}
 bestEl.textContent='REKOR '+best;
 const rand=(a:number,b:number)=>a+Math.random()*(b-a);
-function reset(){distance=0;score=0;elapsed=0;levelLength=beatMap.duration*levelSpeed;design=designLevel(beatMap,levelSpeed);obstacles=design.obstacles;musicClock=0;beatFlash=0;lastBeatIndex=-1;particles=[];player={x:Math.min(w*.24,290),y:ground-36,vy:0,size:36,angle:0,onGround:true};shake=0;mode='playing';overlay.classList.add('hidden');}
+function reset(){distance=0;score=0;elapsed=0;levelLength=beatMap.duration*levelSpeed;design=designLevel(beatMap,levelSpeed);obstacles=design.obstacles;musicClock=0;beatFlash=0;lastBeatIndex=-1;particles=[];player={x:Math.min(w*.24,290),y:ground-36,vy:0,size:36,angle:0,onGround:true};verticalCamera=0;shake=0;mode='playing';overlay.classList.add('hidden');}
 function start(){if(analyzing)return;audio.pause();try{audio.currentTime=0;}catch{}reset();if(audio.src)void unlockAudio().then(()=>audio.play()).catch(()=>{});}
 function end(won:boolean){audio.pause();mode=won?'won':'dead';overlay.classList.remove('hidden');overlay.querySelector('h1')!.innerHTML=won?'LEVEL <em>TAMAMLANDI</em>':'OYUN <em>BİTTİ</em>';message.textContent=won?'Harika! Yeni bir tur için tekrar başla.':'Skor '+score+' · Yeniden dene ve rekorunu geliştir.';$('start').textContent='TEKRAR OYNA →';if(score>best){best=score;try{localStorage.setItem('sonicverse-best',String(best));}catch{}}bestEl.textContent='REKOR '+best;}
 function jump(){if(mode==='menu'||mode==='dead'||mode==='won'){start();return;}if(mode==='paused'){mode='playing';return;}if(player.onGround){player.vy=-760;player.onGround=false;for(let i=0;i<10;i++)particles.push({x:player.x+18,y:ground,vx:rand(-130,60),vy:rand(-120,0),life:rand(.25,.6),hue:185});}}
@@ -75,9 +76,11 @@ function audioLevels(dt:number){
  else{const pulse=(Math.sin(elapsed*7.5)+1)*.5;beat+=(.25+pulse*.3-beat)*Math.min(1,dt*6);mid+=(.2+pulse*.2-mid)*Math.min(1,dt*6);treble+=(.18+pulse*.12-treble)*Math.min(1,dt*6);}
  energy+=(Math.max(beat,mid)-energy)*Math.min(1,dt*2.5);
 }
+function terrainAt(worldX:number){return design.terrain.find(piece=>worldX>=piece.x&&worldX<piece.x+piece.w);}
+function surfaceAt(worldX:number){const piece=terrainAt(worldX);return piece&&!piece.gap?ground-piece.rise:Infinity;}
 function collide(o:Obstacle,screenX:number){
  const px=player.x+7,py=player.y+6,ps=player.size-14;
- const ox=screenX+7,ow=o.w-14,oy=ground-o.h+8,oh=o.h-8;
+ const ox=screenX+7,ow=o.w-14,oy=surfaceAt(o.x-420)-o.h+8,oh=o.h-8;
  if(o.type==='orb'){return px<ox+ow&&px+ps>ox&&py<oy+oh&&py+ps>oy;}
  return px<ox+ow&&px+ps>ox&&py+ps>oy&&py<ground;
 }
@@ -94,9 +97,21 @@ function update(dt:number){
  score=Math.floor(distance/8);scoreEl.textContent=String(score).padStart(5,'0');percentEl.textContent=Math.min(100,Math.floor(distance/levelLength*100))+'%';
  if(distance>=levelLength){end(true);return;}
  // Obstacles are precomputed from the song's beat map.
+ const previousBottom=player.y+player.size;
  player.vy+=1850*dt;player.y+=player.vy*dt;
- if(player.y>=ground-player.size){player.y=ground-player.size;player.vy=0;player.onGround=true;player.angle+=(Math.round(player.angle/(Math.PI/2))*(Math.PI/2)-player.angle)*Math.min(1,dt*18);}
+ const footX=distance+player.size*.55;
+ const surface=surfaceAt(footX);
+ // A ledge can be landed on from above, never teleported onto from below.
+ if(player.vy>=0&&Number.isFinite(surface)&&previousBottom<=surface+7&&player.y+player.size>=surface){
+  player.y=surface-player.size;player.vy=0;player.onGround=true;
+ }else if(player.y+player.size<surface-2||!Number.isFinite(surface)){player.onGround=false;}
+ if(player.onGround)player.angle+=(Math.round(player.angle/(Math.PI/2))*(Math.PI/2)-player.angle)*Math.min(1,dt*18);
  else player.angle+=dt*7;
+ // Solid raised terrain has a front wall; gaps are actual falls.
+ const front=terrainAt(distance+player.size);
+ if(front&&!front.gap&&front.rise>0&&player.y+player.size>ground-front.rise+12&&player.y<ground){end(false);return;}
+ if(player.y>ground+160){end(false);return;}
+ verticalCamera+=(Math.max(0,ground-player.y-140)-verticalCamera)*Math.min(1,dt*2.2);
  for(const o of obstacles){const x=o.x-distance+player.x;if(!o.passed&&x+o.w<player.x){o.passed=true;score+=25;}if(collide(o,x)){shake=16;for(let i=0;i<36;i++)particles.push({x:player.x+18,y:player.y+18,vx:rand(-320,320),vy:rand(-330,250),life:rand(.35,.85),hue:rand(180,330)});end(false);break;}}
  obstacles=obstacles.filter(o=>o.x-distance+player.x>-140);
  if(Math.random()<.7)particles.push({x:rand(0,w),y:rand(0,ground),vx:-rand(40,180),vy:0,life:rand(.3,1),hue:rand(185,300)});
@@ -106,7 +121,7 @@ function update(dt:number){
 function polygon(x:number,y:number,r:number,sides:number,rotation=0){ctx.beginPath();for(let i=0;i<sides;i++){const a=rotation+i*Math.PI*2/sides;const xx=x+Math.cos(a)*r,yy=y+Math.sin(a)*r;if(i===0)ctx.moveTo(xx,yy);else ctx.lineTo(xx,yy);}ctx.closePath();}
 function draw(){
  ctx.clearRect(0,0,w,h);
- ctx.save();ctx.translate(rand(-shake,shake),rand(-shake,shake));
+ ctx.save();ctx.translate(rand(-shake,shake),rand(-shake,shake)+verticalCamera*.18);
  const section=design.sections.find(x=>musicClock>=x.start&&musicClock<x.end)??design.sections[0];
  const hue=(section?.hue??190)+energy*45;
  const bg=ctx.createLinearGradient(0,0,0,h);bg.addColorStop(0,'#060a20');bg.addColorStop(.6,'#111038');bg.addColorStop(1,'#070a1d');ctx.fillStyle=bg;ctx.fillRect(0,0,w,h);
@@ -141,13 +156,29 @@ function draw(){
   ctx.save();ctx.globalAlpha=beatFlash*.65;ctx.strokeStyle=`hsl(${hue+90},100%,76%)`;ctx.lineWidth=3+beatFlash*5;ctx.shadowBlur=25;ctx.shadowColor='#ff69de';
   ctx.beginPath();ctx.arc(player.x+18,player.y+18,55+(1-beatFlash)*160,0,Math.PI*2);ctx.stroke();ctx.restore();
  }
- const base=ground;ctx.fillStyle='#0a102b';ctx.fillRect(0,base,w,h-base);ctx.shadowBlur=22;ctx.shadowColor='#31dcff';ctx.strokeStyle='#43dfff';ctx.lineWidth=3;ctx.beginPath();ctx.moveTo(0,base);ctx.lineTo(w,base);ctx.stroke();ctx.shadowBlur=0;
+ const base=ground;
+ // Solid platform silhouettes, raised steps and real gaps.
+ for(const piece of design.terrain){
+  const x=piece.x-distance+player.x;if(x+piece.w<0||x>w||piece.gap)continue;
+  const top=ground-piece.rise;
+  ctx.save();
+  ctx.fillStyle=piece.rise?'#111c40':'#0a102b';
+  ctx.fillRect(x,top,piece.w,h-top+100);
+  ctx.fillStyle=piece.rise?'#1b2855':'#111a3c';
+  for(let xx=x+16;xx<x+piece.w-10;xx+=42)for(let yy=top+22;yy<Math.min(h+60,top+140);yy+=36)ctx.fillRect(xx,yy,23,2);
+  ctx.strokeStyle=piece.rise?'#f476e8':'#43dfff';ctx.shadowColor=piece.rise?'#ff54d9':'#31dcff';ctx.shadowBlur=18+beatFlash*12;ctx.lineWidth=4;
+  ctx.beginPath();ctx.moveTo(x,top);ctx.lineTo(x+piece.w,top);ctx.stroke();
+  if(piece.rise){ctx.strokeStyle='#e37aff';ctx.lineWidth=2;ctx.beginPath();ctx.moveTo(x,top);ctx.lineTo(x,ground);ctx.stroke();}
+  ctx.restore();
+ }
+
  const grid=60;ctx.strokeStyle='rgba(62,169,250,.13)';ctx.lineWidth=1;for(let x=-(distance*.7%grid);x<w;x+=grid){ctx.beginPath();ctx.moveTo(x,base);ctx.lineTo(x+80,h);ctx.stroke();}
  for(let y=base+30;y<h;y+=30){ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(w,y);ctx.stroke();}
  for(const o of obstacles){const x=o.x-distance+player.x;if(x<-100||x>w+100)continue;ctx.save();ctx.shadowColor=o.type==='orb'?'#fda8f9':'#ff3f9e';ctx.shadowBlur=14+beat*20;ctx.fillStyle=o.type==='orb'?'#d46aff':'#ff468e';ctx.strokeStyle='#ffb5dd';ctx.lineWidth=2;
- if(o.type==='block'){ctx.fillRect(x,base-o.h,o.w,o.h);ctx.strokeRect(x,base-o.h,o.w,o.h);ctx.fillStyle='#1b1035';ctx.fillRect(x+9,base-o.h+10,o.w-18,o.h-20);}
- else if(o.type==='orb'){polygon(x+o.w/2,base-o.h/2,o.w*.52,6,elapsed);ctx.fill();ctx.stroke();}
- else{const count=o.type==='double'?2:1;for(let j=0;j<count;j++){const sx=x+j*41;ctx.beginPath();ctx.moveTo(sx,base);ctx.lineTo(sx+21,base-o.h);ctx.lineTo(sx+42,base);ctx.closePath();ctx.fill();ctx.stroke();}}
+ const obstacleBase=surfaceAt(o.x-420);if(!Number.isFinite(obstacleBase)){ctx.restore();continue;}
+ if(o.type==='block'){ctx.fillRect(x,obstacleBase-o.h,o.w,o.h);ctx.strokeRect(x,obstacleBase-o.h,o.w,o.h);ctx.fillStyle='#1b1035';ctx.fillRect(x+9,obstacleBase-o.h+10,o.w-18,o.h-20);}
+ else if(o.type==='orb'){polygon(x+o.w/2,obstacleBase-o.h/2,o.w*.52,6,elapsed);ctx.fill();ctx.stroke();}
+ else{const count=o.type==='double'?2:1;for(let j=0;j<count;j++){const sx=x+j*41;ctx.beginPath();ctx.moveTo(sx,obstacleBase);ctx.lineTo(sx+21,obstacleBase-o.h);ctx.lineTo(sx+42,obstacleBase);ctx.closePath();ctx.fill();ctx.stroke();}}
  ctx.restore();}
  for(const p of particles){ctx.globalAlpha=Math.min(1,p.life*2);ctx.fillStyle=`hsl(${p.hue},100%,75%)`;ctx.fillRect(p.x,p.y,3,3);}ctx.globalAlpha=1;
  ctx.save();ctx.translate(player.x+player.size/2,player.y+player.size/2);ctx.rotate(player.angle);ctx.shadowBlur=24;ctx.shadowColor='#4defff';ctx.fillStyle='#32dcf7';ctx.strokeStyle='#c3f9ff';ctx.lineWidth=3;ctx.fillRect(-18,-18,36,36);ctx.strokeRect(-18,-18,36,36);ctx.shadowBlur=0;ctx.fillStyle='#0a1740';ctx.fillRect(-10,-10,20,20);ctx.fillStyle='#b6ffff';ctx.fillRect(0,-10,10,10);ctx.restore();
