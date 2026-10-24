@@ -1,6 +1,9 @@
 export type BeatEvent={time:number;strength:number};
 export type BeatMap={duration:number;bpm:number;beats:BeatEvent[];seed:number;source:'analysis'|'fallback'};
 export type LevelObstacle={x:number;type:'spike'|'double'|'block'|'orb';w:number;h:number;passed:boolean};
+export type LevelSection={start:number;end:number;energy:number;kind:'intro'|'flow'|'build'|'drop'|'break';hue:number};
+export type LevelDesign={obstacles:LevelObstacle[];sections:LevelSection[];markers:number[]};
+
 const clamp=(v:number,a:number,b:number)=>Math.max(a,Math.min(b,v));
 export function hashSeed(text:string){let h=2166136261;for(let i=0;i<text.length;i++){h^=text.charCodeAt(i);h=Math.imul(h,16777619);}return h>>>0;}
 function rng(seed:number){return()=>{seed=(Math.imul(seed,1664525)+1013904223)>>>0;return seed/4294967296;};}
@@ -56,21 +59,44 @@ export function fallbackBeatMap(seed:number,duration=95):BeatMap{
  for(let time=0;time<duration;time+=step)beats.push({time,strength:.3+random()*.65});
  return {duration,bpm,beats,seed,source:'fallback'};
 }
-export function generateLevel(map:BeatMap,speed=330):LevelObstacle[]{
- const random=rng(map.seed),result:LevelObstacle[]=[];
- let last=-1000;
- // At 330px/s, a full jump lasts ~0.82s, covering ~270px.
- // Use a conservative 1.15s minimum interval for fair, isolated obstacles.
- for(let i=0;i<map.beats.length;i++){
-  const beat=map.beats[i],time=beat.time;
-  if(time<2.4||time>map.duration-1.5||time-last<1.15)continue;
-  if(beat.strength<.28&&random()>.35)continue;
-  const choice=random();
-  const type:LevelObstacle['type']=choice<.52?'spike':choice<.78?'double':choice<.92?'block':'orb';
-  const w=type==='double'?82:type==='block'?53:42;
-  const h=type==='block'?62:42;
-  result.push({x:time*speed+420,type,w,h,passed:false});
-  last=time;
+// Eight-bar phrases form coherent musical sections instead of unrelated obstacles.
+export function designLevel(map:BeatMap,speed=330):LevelDesign{
+ const random=rng(map.seed),obstacles:LevelObstacle[]=[],sections:LevelSection[]=[],markers:number[]=[];
+ const step=60/map.bpm,bar=step*4,phrase=bar*8;
+ const average=(a:number,b:number)=>{let total=0,count=0;for(const beat of map.beats)if(beat.time>=a&&beat.time<b){total+=beat.strength;count++;}return count?total/count:.25;};
+ const phrases=Math.ceil(map.duration/phrase);
+ const energies=Array.from({length:phrases},(_,i)=>average(i*phrase,(i+1)*phrase));
+ const low=Math.min(...energies),high=Math.max(...energies),range=Math.max(.08,high-low);
+ for(let i=0;i<phrases;i++){
+  const start=i*phrase,end=Math.min(map.duration,(i+1)*phrase);
+  const energy=clamp((energies[i]-low)/range,0,1);
+  const previous=i?clamp((energies[i-1]-low)/range,0,1):energy;
+  const next=i+1<phrases?clamp((energies[i+1]-low)/range,0,1):energy;
+  const kind:LevelSection['kind']=i===0?'intro':energy<.24?'break':energy>.66&&energy-previous>.12?'drop':next-energy>.17?'build':'flow';
+  sections.push({start,end,energy,kind,hue:kind==='drop'?310:kind==='break'?190:kind==='build'?265:210});
  }
- return result;
+ // Obstacle timings are aligned to beats, with intentional repeating four-bar motifs.
+ // At this physics setting, a jump lasts about .82s. Obstacles are spaced >= 1.20s.
+ let lastTime=-10;
+ const place=(time:number,type:LevelObstacle['type'])=>{
+  if(time<2.5||time>map.duration-1.5||time-lastTime<1.20)return false;
+  const w=type==='double'?82:type==='block'?53:42;
+  obstacles.push({x:time*speed+420,type,w,h:type==='block'?62:42,passed:false});lastTime=time;return true;
+ };
+ for(let p=0;p<phrases;p++){
+  const section=sections[p],startBeat=Math.ceil(section.start/step);
+  const pattern=section.kind==='intro'?[0,8,16,24]:section.kind==='break'?[0,12,24]:section.kind==='drop'?[0,4,8,12,16,20,24,28]:section.kind==='build'?[0,8,12,16,20,24,28]:[0,6,12,16,22,28];
+  const motif=random();
+  for(const offset of pattern){
+   const index=startBeat+offset;
+   const event=map.beats[index];if(!event)continue;
+   const time=event.time;
+   if(time<section.start||time>=section.end)continue;
+   const type:LevelObstacle['type']=section.kind==='intro'||section.kind==='break'?'spike':motif<.35?'spike':motif<.7?'double':'block';
+   place(time,type);
+  }
+  for(let t=section.start;t<section.end;t+=bar)markers.push(t*speed+420);
+ }
+ return {obstacles,sections,markers};
 }
+export function generateLevel(map:BeatMap,speed=330):LevelObstacle[]{return designLevel(map,speed).obstacles;}
