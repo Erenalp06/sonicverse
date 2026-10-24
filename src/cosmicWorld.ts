@@ -124,7 +124,7 @@ export function createCosmicWorld(scene:THREE.Scene,mobile:boolean):CosmicWorld{
  const shockGeo=new THREE.RingGeometry(1,1.045,96);
  const shockMat=new THREE.MeshBasicMaterial({color:0x8fc9ff,side:THREE.DoubleSide,transparent:true,opacity:0,depthWrite:false,blending:THREE.AdditiveBlending});
  const shock=new THREE.Mesh(shockGeo,shockMat);scene.add(shock);disposables.push(shockGeo,shockMat);
- let shockAge=10,beatCooldown=0,previousBass=0;
+ let shockAge=10,beatCooldown=0,previousBass=0,journeyActive=false;
  function update(dt:number,time:number,bands:AudioBands,camera:THREE.Camera,atmosphere:Atmosphere){
   uniforms.uTime.value=time;uniforms.uBass.value=bands.bass;uniforms.uMid.value=bands.mid;
   const weights=[atmosphere.calm,atmosphere.energy,atmosphere.melancholy,atmosphere.euphoria];
@@ -142,8 +142,8 @@ export function createCosmicWorld(scene:THREE.Scene,mobile:boolean):CosmicWorld{
   if((bands.beat||(bands.bass>.26&&bands.bass-previousBass>.085))&&beatCooldown===0){shockAge=0;beatCooldown=.26;}
   previousBass=bands.bass;
   shockAge+=dt;
-  shock.visible=shockAge<1.4;
+  shock.visible=!journeyActive&&shockAge<1.4;
   if(shock.visible){shock.position.set(0,0,0);shock.quaternion.copy(camera.quaternion);shock.scale.setScalar(12+shockAge*88);shockMat.opacity=.62*Math.pow(1-shockAge/1.4,2);}
  }
- return {update,setJourneyMode(active:boolean){core.visible=!active;inner.visible=!active;shock.visible=!active;markers.forEach(m=>m.visible=!active);},dispose(){[stars,core,inner,shock,...nebulae,...markers].forEach(o=>scene.remove(o));disposables.forEach(o=>o.dispose());}};
+ return {update,setJourneyMode(active:boolean){journeyActive=active;core.visible=!active;inner.visible=!active;shock.visible=!active;markers.forEach(m=>m.visible=!active);},dispose(){[stars,core,inner,shock,...nebulae,...markers].forEach(o=>scene.remove(o));disposables.forEach(o=>o.dispose());}};
 }
