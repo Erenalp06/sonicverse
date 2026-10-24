@@ -2,7 +2,7 @@ import type {Atmosphere} from './emotionEngine';
 import * as THREE from 'three';
 
 export type AudioBands = { bass:number; mid:number; treble:number; beat:boolean };
-export type CosmicWorld = { update:(dt:number,time:number,bands:AudioBands,camera:THREE.Camera,atmosphere:Atmosphere)=>void; dispose:()=>void };
+export type CosmicWorld = { update:(dt:number,time:number,bands:AudioBands,camera:THREE.Camera,atmosphere:Atmosphere)=>void; setJourneyMode:(active:boolean)=>void; dispose:()=>void };
 
 const starVertex=`
 attribute float aSize;
@@ -145,5 +145,5 @@ export function createCosmicWorld(scene:THREE.Scene,mobile:boolean):CosmicWorld{
   shock.visible=shockAge<1.4;
   if(shock.visible){shock.position.set(0,0,0);shock.quaternion.copy(camera.quaternion);shock.scale.setScalar(12+shockAge*88);shockMat.opacity=.62*Math.pow(1-shockAge/1.4,2);}
  }
- return {update,dispose(){[stars,core,inner,shock,...nebulae,...markers].forEach(o=>scene.remove(o));disposables.forEach(o=>o.dispose());}};
+ return {update,setJourneyMode(active:boolean){core.visible=!active;inner.visible=!active;shock.visible=!active;markers.forEach(m=>m.visible=!active);},dispose(){[stars,core,inner,shock,...nebulae,...markers].forEach(o=>scene.remove(o));disposables.forEach(o=>o.dispose());}};
 }
