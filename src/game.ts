@@ -20,7 +20,7 @@ let beatMap:BeatMap=fallbackBeatMap(hashSeed('sonicverse-demo'));
 let selectedSong='sonicverse-demo';
 let analyzing=false;
 const levelInfo=()=>document.getElementById('levelInfo')!;
-function setLevel(map:BeatMap){beatMap=map;levelInfo().textContent=`${map.bpm} BPM · ${map.source==='analysis'?'Şarkıdan oluşturulan':'Tahmini'} harita · ${Math.floor(map.duration)} sn`;if(mode==='playing'||mode==='paused')end(false);}
+function setLevel(map:BeatMap){beatMap=map;levelInfo().textContent=`${map.bpm} BPM · ${map.source==='analysis'?'Şarkıdan oluşturulan':'Tahmini'} harita · ${Math.floor(map.duration)} sn`;if(mode==='playing'||mode==='paused'){mode='menu';overlay.classList.remove('hidden');message.textContent='Yeni şarkı haritası hazır. Başlatabilirsin.';}}
 async function prepareTrack(id:string){selectedSong=id;setLevel(fallbackBeatMap(hashSeed(id),audio.duration&&Number.isFinite(audio.duration)?audio.duration:95));levelInfo().textContent+=' · Audius akışı: tahmini ritim';}
 async function unlockAudio(){
  if(!audioContext){
@@ -35,17 +35,17 @@ const musicPanel=$<HTMLElement>('musicPanel');
 $('musicToggle').addEventListener('click',()=>musicPanel.classList.toggle('open'));
 $('closeMusic').addEventListener('click',()=>musicPanel.classList.remove('open'));
 let tracks:Track[]=[];
-function showTracks(list:Track[]){tracks=list;const container=$<HTMLElement>('results');container.replaceChildren();list.forEach((track,i)=>{const button=document.createElement('button');button.className='songItem';const img=document.createElement('img');if(track.artwork?.startsWith('https://'))img.src=track.artwork;img.alt='';const label=document.createElement('span');label.textContent=track.title+' — '+track.artist;button.append(img,label);button.addEventListener('click',async()=>{audio.pause();if(objectUrl){URL.revokeObjectURL(objectUrl);objectUrl=undefined;}audio.src=streamUrl(tracks[i].id);void prepareTrack(tracks[i].id);$('song').textContent=label.textContent;try{await unlockAudio();await audio.play();$('audioError').textContent='';musicPanel.classList.remove('open');}catch(e){$('audioError').textContent='Parça oynatılamadı: '+String(e);}});container.append(button);});}
+function showTracks(list:Track[]){tracks=list;const container=$<HTMLElement>('results');container.replaceChildren();list.forEach((track,i)=>{const button=document.createElement('button');button.className='songItem';const img=document.createElement('img');if(track.artwork?.startsWith('https://'))img.src=track.artwork;img.alt='';const label=document.createElement('span');label.textContent=track.title+' — '+track.artist;button.append(img,label);button.addEventListener('click',async()=>{audio.pause();if(objectUrl){URL.revokeObjectURL(objectUrl);objectUrl=undefined;}audio.src=streamUrl(tracks[i].id);void prepareTrack(tracks[i].id);$('song').textContent=label.textContent;try{await unlockAudio();audio.pause();audio.currentTime=0;$('audioError').textContent='';musicPanel.classList.remove('open');}catch(e){$('audioError').textContent='Parça oynatılamadı: '+String(e);}});container.append(button);});}
 let searchController:AbortController|undefined;
 async function loadMusic(query=''){searchController?.abort();searchController=new AbortController();try{showTracks(await(query?searchTracks(query,searchController.signal):trending(searchController.signal)));}catch(e){if((e as Error).name!=='AbortError')$('audioError').textContent='Audius bağlantısı kurulamadı.';}}
 let searchTimer=0;
 $<HTMLInputElement>('search').addEventListener('input',e=>{clearTimeout(searchTimer);searchTimer=window.setTimeout(()=>void loadMusic((e.target as HTMLInputElement).value.trim()),350);});
 $('popular').addEventListener('click',()=>void loadMusic());
-$<HTMLInputElement>('file').addEventListener('change',async e=>{const file=(e.target as HTMLInputElement).files?.[0];if(!file)return;audio.pause();if(objectUrl)URL.revokeObjectURL(objectUrl);objectUrl=URL.createObjectURL(file);audio.src=objectUrl;selectedSong=file.name+':'+file.size;$('song').textContent=file.name;analyzing=true;levelInfo().textContent='Şarkı analiz ediliyor...';try{const bytes=await file.arrayBuffer();const map=await analyzeAudio(bytes,hashSeed(selectedSong));setLevel(map);}catch(error){setLevel(fallbackBeatMap(hashSeed(selectedSong)));$('audioError').textContent='Analiz başarısız, tahmini harita kullanılıyor: '+String(error);}finally{analyzing=false;}try{await unlockAudio();await audio.play();$('audioError').textContent='';musicPanel.classList.remove('open');}catch(e){$('audioError').textContent=String(e);}});
+$<HTMLInputElement>('file').addEventListener('change',async e=>{const file=(e.target as HTMLInputElement).files?.[0];if(!file)return;audio.pause();if(objectUrl)URL.revokeObjectURL(objectUrl);objectUrl=URL.createObjectURL(file);audio.src=objectUrl;selectedSong=file.name+':'+file.size;$('song').textContent=file.name;analyzing=true;levelInfo().textContent='Şarkı analiz ediliyor...';try{const bytes=await file.arrayBuffer();const map=await analyzeAudio(bytes,hashSeed(selectedSong));setLevel(map);}catch(error){setLevel(fallbackBeatMap(hashSeed(selectedSong)));$('audioError').textContent='Analiz başarısız, tahmini harita kullanılıyor: '+String(error);}finally{analyzing=false;}try{await unlockAudio();audio.pause();audio.currentTime=0;$('audioError').textContent='';musicPanel.classList.remove('open');}catch(e){$('audioError').textContent=String(e);}});
 void loadMusic();
 
-let w=0,h=0,dpr=1,scale=1,ground=0;
-function resize(){dpr=Math.min(devicePixelRatio||1,2);w=innerWidth;h=innerHeight;canvas.width=Math.floor(w*dpr);canvas.height=Math.floor(h*dpr);canvas.style.width=w+'px';canvas.style.height=h+'px';ctx.setTransform(dpr,0,0,dpr,0,0);scale=Math.min(w/1000,h/650);ground=h*.77;}
+let w=0,h=0,dpr=1,ground=0;
+function resize(){dpr=Math.min(devicePixelRatio||1,2);w=innerWidth;h=innerHeight;canvas.width=Math.floor(w*dpr);canvas.height=Math.floor(h*dpr);canvas.style.width=w+'px';canvas.style.height=h+'px';ctx.setTransform(dpr,0,0,dpr,0,0);ground=h*.77;}
 addEventListener('resize',resize);resize();
 
 type Obstacle={x:number,type:'spike'|'double'|'block'|'orb';w:number,h:number,passed:boolean};
@@ -53,13 +53,13 @@ type Particle={x:number,y:number,vx:number,vy:number,life:number,hue:number};
 let obstacles:Obstacle[]=[],particles:Particle[]=[];
 let mode:'menu'|'playing'|'paused'|'dead'|'won'='menu';
 let player={x:0,y:0,vy:0,size:36,angle:0,onGround:true};
-let distance=0,score=0,best=0,spawnAt=0,beat=0,energy=0,mid=0,treble=0,last=0,elapsed=0,shake=0;
+let distance=0,score=0,best=0,beat=0,energy=0,mid=0,treble=0,last=0,elapsed=0,shake=0;
 let levelLength=13500;
 const levelSpeed=330;
 try{best=Number(localStorage.getItem('sonicverse-best')||0)||0;}catch{}
 bestEl.textContent='REKOR '+best;
 const rand=(a:number,b:number)=>a+Math.random()*(b-a);
-function reset(){distance=0;score=0;spawnAt=Infinity;elapsed=0;levelLength=beatMap.duration*levelSpeed;obstacles=generateLevel(beatMap,levelSpeed);particles=[];player={x:Math.min(w*.24,290),y:ground-36,vy:0,size:36,angle:0,onGround:true};shake=0;mode='playing';overlay.classList.add('hidden');}
+function reset(){distance=0;score=0;elapsed=0;levelLength=beatMap.duration*levelSpeed;obstacles=generateLevel(beatMap,levelSpeed);particles=[];player={x:Math.min(w*.24,290),y:ground-36,vy:0,size:36,angle:0,onGround:true};shake=0;mode='playing';overlay.classList.add('hidden');}
 function start(){if(analyzing)return;audio.pause();try{audio.currentTime=0;}catch{}reset();if(audio.src)void unlockAudio().then(()=>audio.play()).catch(()=>{});}
 function end(won:boolean){audio.pause();mode=won?'won':'dead';overlay.classList.remove('hidden');overlay.querySelector('h1')!.innerHTML=won?'LEVEL <em>TAMAMLANDI</em>':'OYUN <em>BİTTİ</em>';message.textContent=won?'Harika! Yeni bir tur için tekrar başla.':'Skor '+score+' · Yeniden dene ve rekorunu geliştir.';$('start').textContent='TEKRAR OYNA →';if(score>best){best=score;try{localStorage.setItem('sonicverse-best',String(best));}catch{}}bestEl.textContent='REKOR '+best;}
 function jump(){if(mode==='menu'||mode==='dead'||mode==='won'){start();return;}if(mode==='paused'){mode='playing';return;}if(player.onGround){player.vy=-760;player.onGround=false;for(let i=0;i<10;i++)particles.push({x:player.x+18,y:ground,vx:rand(-130,60),vy:rand(-120,0),life:rand(.25,.6),hue:185});}}
@@ -72,15 +72,6 @@ function audioLevels(dt:number){
  if(analyser&&frequency&&!audio.paused){analyser.getByteFrequencyData(frequency);const avg=(a:number,b:number)=>{let v=0;for(let i=a;i<b;i++)v+=frequency![i];return v/(b-a)/255;};const target=avg(1,10),m=avg(10,75),t=avg(75,210);beat+=(target-beat)*Math.min(1,dt*12);mid+=(m-mid)*Math.min(1,dt*9);treble+=(t-treble)*Math.min(1,dt*8);}
  else{const pulse=(Math.sin(elapsed*7.5)+1)*.5;beat+=(.25+pulse*.3-beat)*Math.min(1,dt*6);mid+=(.2+pulse*.2-mid)*Math.min(1,dt*6);treble+=(.18+pulse*.12-treble)*Math.min(1,dt*6);}
  energy+=(Math.max(beat,mid)-energy)*Math.min(1,dt*2.5);
-}
-function addObstacle(){
- const progress=distance/levelLength;
- const choice=Math.random();
- const type:Obstacle['type']=progress<.08?'spike':choice<.4?'spike':choice<.65?'double':choice<.85?'block':'orb';
- const height=type==='block'?62:type==='orb'?42:42;
- const width=type==='double'?82:type==='block'?53:42;
- obstacles.push({x:spawnAt,type,w:width,h:height,passed:false});
- spawnAt+=rand(250,350)-Math.min(55,progress*90);
 }
 function collide(o:Obstacle,screenX:number){
  const px=player.x+7,py=player.y+6,ps=player.size-14;
