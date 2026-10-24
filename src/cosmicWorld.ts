@@ -1,7 +1,8 @@
+import type {Atmosphere} from './emotionEngine';
 import * as THREE from 'three';
 
 export type AudioBands = { bass:number; mid:number; treble:number; beat:boolean };
-export type CosmicWorld = { update:(dt:number,time:number,bands:AudioBands,camera:THREE.Camera)=>void; dispose:()=>void };
+export type CosmicWorld = { update:(dt:number,time:number,bands:AudioBands,camera:THREE.Camera,atmosphere:Atmosphere)=>void; dispose:()=>void };
 
 const starVertex=`
 attribute float aSize;
@@ -36,6 +37,7 @@ uniform float uTime;
 uniform float uBass;
 uniform float uMid;
 uniform vec3 uColor;
+uniform float uMoodGlow;
 float hash(vec3 p){return fract(sin(dot(p,vec3(127.1,311.7,74.7)))*43758.5453);}
 float noise(vec3 p){
  vec3 i=floor(p),f=fract(p);f=f*f*(3.-2.*f);
@@ -49,7 +51,7 @@ void main(){
  float region=smoothstep(.18,.78,noise(p*2.1+vec3(2.7,1.3,4.1)));
  float alpha=region*(filaments*(.015+uMid*.026)+smoothstep(1.10,1.42,n)*(.016+uBass*.032));
  vec3 col=mix(uColor,vec3(.13,.35,.65),smoothstep(.85,1.28,n));
- gl_FragColor=vec4(col*(.38+uBass*.28),alpha);
+ gl_FragColor=vec4(col*(.38+uBass*.28),alpha*uMoodGlow);
 }`;
 const particleVertex=`
 attribute float aPhase;
@@ -72,7 +74,7 @@ void main(){float d=length(gl_PointCoord-.5);float a=exp(-d*d*55.)*vIntensity;if
 
 export function createCosmicWorld(scene:THREE.Scene,mobile:boolean):CosmicWorld{
  const disposables:Array<{dispose:()=>void}>=[];
- const uniforms={uTime:{value:0},uBass:{value:0},uMid:{value:0}};
+ const uniforms={uTime:{value:0},uBass:{value:0},uMid:{value:0},uMoodGlow:{value:1}};
  const starCount=mobile?2200:5600;
  const starPositions=new Float32Array(starCount*3),starColors=new Float32Array(starCount*3),starSizes=new Float32Array(starCount),starPhases=new Float32Array(starCount);
  const c=new THREE.Color();
@@ -88,6 +90,8 @@ export function createCosmicWorld(scene:THREE.Scene,mobile:boolean):CosmicWorld{
  starsGeo.setAttribute('aSize',new THREE.BufferAttribute(starSizes,1));
  starsGeo.setAttribute('aPhase',new THREE.BufferAttribute(starPhases,1));
  const starsMat=new THREE.ShaderMaterial({vertexShader:starVertex,fragmentShader:starFragment,uniforms:{uTime:uniforms.uTime},vertexColors:true,transparent:true,depthWrite:false,blending:THREE.AdditiveBlending});
+ const palette=[new THREE.Color('#82b9db'),new THREE.Color('#f875b4'),new THREE.Color('#4963b8'),new THREE.Color('#f5c58a')];
+ const moodColor=new THREE.Color();
  const stars=new THREE.Points(starsGeo,starsMat);scene.add(stars);disposables.push(starsGeo,starsMat);
  const nebulae:THREE.Mesh[]=[];
  for(let i=0;i<2;i++){
@@ -121,11 +125,18 @@ export function createCosmicWorld(scene:THREE.Scene,mobile:boolean):CosmicWorld{
  const shockMat=new THREE.MeshBasicMaterial({color:0x8fc9ff,side:THREE.DoubleSide,transparent:true,opacity:0,depthWrite:false,blending:THREE.AdditiveBlending});
  const shock=new THREE.Mesh(shockGeo,shockMat);scene.add(shock);disposables.push(shockGeo,shockMat);
  let shockAge=10,beatCooldown=0,previousBass=0;
- function update(dt:number,time:number,bands:AudioBands,camera:THREE.Camera){
+ function update(dt:number,time:number,bands:AudioBands,camera:THREE.Camera,atmosphere:Atmosphere){
   uniforms.uTime.value=time;uniforms.uBass.value=bands.bass;uniforms.uMid.value=bands.mid;
-  stars.rotation.y+=dt*(.001+bands.treble*.012);
+  const weights=[atmosphere.calm,atmosphere.energy,atmosphere.melancholy,atmosphere.euphoria];
+  moodColor.setRGB(0,0,0);
+  palette.forEach((c,i)=>moodColor.addScaledVector(c,weights[i]));
+  uniforms.uMoodGlow.value=.55+atmosphere.intensity*.75;
+  nebulae.forEach((n,i)=>{const material=n.material as THREE.ShaderMaterial;const tint=moodColor.clone().multiplyScalar(i===0?.85:.55);material.uniforms.uColor.value.copy(tint);});
+  innerMat.color.lerp(moodColor,1-Math.exp(-dt*.5));
+  stars.rotation.y+=dt*(.001+atmosphere.motion*.013);
   nebulae.forEach((n,i)=>{n.rotation.y+=dt*(i%2?-.002:.003);n.rotation.z+=dt*.001;});
-  markers.forEach((m,i)=>{m.rotation.y+=dt*(.15+i*.04);m.rotation.x+=dt*.08;m.scale.setScalar(1+bands.mid*.25);});\n  core.rotation.y+=dt*(.05+bands.mid*.18);core.rotation.x+=dt*.025;
+  markers.forEach((m,i)=>{m.rotation.y+=dt*(.05+atmosphere.motion*.3+i*.04);m.rotation.x+=dt*.08;m.scale.setScalar(1+bands.mid*.25);});
+  core.rotation.y+=dt*(.018+atmosphere.motion*.2+bands.mid*.12);core.rotation.x+=dt*.025;
   inner.scale.setScalar(1+bands.bass*.55);innerMat.opacity=.13+bands.bass*.25;
   beatCooldown=Math.max(0,beatCooldown-dt);
   if((bands.beat||(bands.bass>.26&&bands.bass-previousBass>.085))&&beatCooldown===0){shockAge=0;beatCooldown=.26;}
