@@ -1,10 +1,11 @@
+import {EmotionEngine,type MoodMode} from './emotionEngine';
 import {createCosmicWorld} from './cosmicWorld';
 import {trending,searchTracks,streamUrl,type Track} from './audius';
 import * as THREE from 'three';
 import './style.css';
 
 const app=document.querySelector<HTMLDivElement>('#app')!;
-app.innerHTML=`<div id="hud"><div class="hudtitle"><h1>SONICVERSE</h1><button id="collapse" aria-expanded="true" aria-label="Müzik panelini küçült">−</button></div><p>KOZMİK EVREN · Müziğin içinde uç</p><div class="controls"><label class="upload">Müzik seç<input id="file" type="file" accept="audio/*,.mp3,.wav,.m4a,.ogg"></label><button id="play" disabled>Oynat</button><button id="reset">Merkeze dön</button><button id="cinema" aria-pressed="false">Sinematik: Kapalı</button></div><div class="discovery"><div class="searchrow"><input id="search" type="search" placeholder="Audius: şarkı veya sanatçı ara" aria-label="Müzik ara"><button id="trending">Popüler</button></div><div id="results" aria-live="polite"></div></div><div class="destinations"><label for="destination">Keşif noktası</label><select id="destination"><option value="0">Plazma Kalbi</option><option value="1">Mor Ufuk</option><option value="2">Mavi Sessizlik</option><option value="3">Derin Boşluk</option></select><button id="travel">Git</button></div><div id="song">Henüz müzik seçilmedi</div><div class="meters"><div class="meter">BAS<div class="track"><div class="fill" id="bass"></div></div></div><div class="meter">ORTA<div class="track"><div class="fill" id="mid"></div></div></div><div class="meter">TİZ<div class="track"><div class="fill" id="treble"></div></div></div></div><div id="error"></div></div><div id="hint">WASD: uç · Q/E: yüksel/alçal · Fare: bakış · Dokunmatik: sol hareket / sağ bakış</div>`;
+app.innerHTML=`<div id="hud"><div class="hudtitle"><h1>SONICVERSE</h1><button id="collapse" aria-expanded="true" aria-label="Müzik panelini küçült">−</button></div><p>KOZMİK EVREN · Müziğin içinde uç</p><div class="controls"><label class="upload">Müzik seç<input id="file" type="file" accept="audio/*,.mp3,.wav,.m4a,.ogg"></label><button id="play" disabled>Oynat</button><button id="reset">Merkeze dön</button><button id="cinema" aria-pressed="false">Sinematik: Kapalı</button></div><div class="discovery"><div class="searchrow"><input id="search" type="search" placeholder="Audius: şarkı veya sanatçı ara" aria-label="Müzik ara"><button id="trending">Popüler</button></div><div id="results" aria-live="polite"></div></div><div class="emotion"><label for="mood">Atmosfer</label><select id="mood"><option value="auto">Otomatik</option><option value="calm">Huzur</option><option value="energy">Enerji</option><option value="melancholy">Melankoli</option><option value="euphoria">Coşku</option></select><span id="moodstate">Atmosfer hazır</span></div><div class="destinations"><label for="destination">Keşif noktası</label><select id="destination"><option value="0">Plazma Kalbi</option><option value="1">Mor Ufuk</option><option value="2">Mavi Sessizlik</option><option value="3">Derin Boşluk</option></select><button id="travel">Git</button></div><div id="song">Henüz müzik seçilmedi</div><div class="meters"><div class="meter">BAS<div class="track"><div class="fill" id="bass"></div></div></div><div class="meter">ORTA<div class="track"><div class="fill" id="mid"></div></div></div><div class="meter">TİZ<div class="track"><div class="fill" id="treble"></div></div></div></div><div id="error"></div></div><div id="hint">WASD: uç · Q/E: yüksel/alçal · Fare: bakış · Dokunmatik: sol hareket / sağ bakış</div>`;
 const file=document.querySelector<HTMLInputElement>('#file')!;
 const play=document.querySelector<HTMLButtonElement>('#play')!;
 const reset=document.querySelector<HTMLButtonElement>('#reset')!;
@@ -16,6 +17,9 @@ collapse.addEventListener('click',()=>{const collapsed=hud.classList.toggle('col
 const cinema=document.querySelector<HTMLButtonElement>('#cinema')!;
 const destination=document.querySelector<HTMLSelectElement>('#destination')!;
 const travel=document.querySelector<HTMLButtonElement>('#travel')!;
+const mood=document.querySelector<HTMLSelectElement>('#mood')!;
+const moodstate=document.querySelector<HTMLSpanElement>('#moodstate')!;
+const emotions=new EmotionEngine();
 const bars=['bass','mid','treble'].map(id=>document.getElementById(id)!);
 const audio=new Audio();audio.preload='metadata';audio.crossOrigin='anonymous';
 const results=document.querySelector<HTMLDivElement>('#results')!;
@@ -67,6 +71,10 @@ if(autopilotTarget){const delta=autopilotTarget.clone().sub(camera.position);if(
 if(cinematic){const orbit=t*.065;const target=new THREE.Vector3(Math.sin(orbit)*120,Math.sin(t*.11)*32,Math.cos(orbit)*120);velocity.copy(target.sub(camera.position).multiplyScalar(.5));}
 smoothVelocity.lerp(velocity,1-Math.exp(-dt*3.5));camera.position.addScaledVector(smoothVelocity,dt);
 if(cinematic){const direction=new THREE.Vector3().sub(camera.position).normalize();const desiredYaw=Math.atan2(-direction.x,-direction.z);yaw+=Math.atan2(Math.sin(desiredYaw-yaw),Math.cos(desiredYaw-yaw))*Math.min(1,dt*1.5);pitch+=(Math.asin(THREE.MathUtils.clamp(direction.y,-1,1))-pitch)*Math.min(1,dt*1.5);}
-world.update(dt,t,{bass,mid,treble,beat:false},camera);renderer.render(scene,camera);}
+const atmosphere=emotions.update(dt,{bass,mid,treble},!audio.paused,mood.value as MoodMode);
+const labels={calm:'Huzur',energy:'Enerji',melancholy:'Melankoli',euphoria:'Coşku'};
+const dominant=(['calm','energy','melancholy','euphoria'] as const).reduce((a,b)=>atmosphere[a]>atmosphere[b]?a:b);
+moodstate.textContent=mood.value==='auto'?'Tahmin: '+labels[dominant]:'Atmosfer: '+labels[mood.value as keyof typeof labels];
+world.update(dt,t,{bass,mid,treble,beat:false},camera,atmosphere);renderer.render(scene,camera);}
 animate();
 addEventListener('resize',()=>{camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix();renderer.setSize(innerWidth,innerHeight);});
