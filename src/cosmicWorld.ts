@@ -46,7 +46,8 @@ void main(){
  vec3 p=normalize(vPos);float n=noise(p*5.+uTime*.018);
  n+=.52*noise(p*11.-uTime*.025);n+=.23*noise(p*25.+uTime*.012);
  float filaments=smoothstep(.91,1.28,n);
- float region=smoothstep(.18,.78,noise(p*2.1+vec3(2.7,1.3,4.1)));\n float alpha=region*(filaments*(.015+uMid*.026)+smoothstep(1.10,1.42,n)*(.016+uBass*.032));
+ float region=smoothstep(.18,.78,noise(p*2.1+vec3(2.7,1.3,4.1)));
+ float alpha=region*(filaments*(.015+uMid*.026)+smoothstep(1.10,1.42,n)*(.016+uBass*.032));
  vec3 col=mix(uColor,vec3(.13,.35,.65),smoothstep(.85,1.28,n));
  gl_FragColor=vec4(col*(.38+uBass*.28),alpha);
 }`;
