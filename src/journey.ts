@@ -68,22 +68,42 @@ export function createJourney(scene:THREE.Scene,camera:THREE.PerspectiveCamera,m
  const palettes=[new THREE.Color('#7ccad2'),new THREE.Color('#ff67ae'),new THREE.Color('#5b7acb'),new THREE.Color('#ffc478')];
  const tint=new THREE.Color(),lookMatrix=new THREE.Matrix4(),desiredRotation=new THREE.Quaternion();
  const cameraTarget=new THREE.Vector3(),cameraCurrent=new THREE.Vector3();
+ const tangent=new THREE.Vector3(),right=new THREE.Vector3(),up=new THREE.Vector3(),forwardPoint=new THREE.Vector3(),backPoint=new THREE.Vector3(),trackPoint=new THREE.Vector3();
+ const trackUp=new THREE.Vector3(0,1,0);
  let distance=0,velocity=0,active=false;
  function center(d:number,out=new THREE.Vector3()){
-  return out.set(Math.sin(d*.0017)*53+Math.sin(d*.0039)*15,Math.cos(d*.0016)*26+Math.sin(d*.0031)*13,-d);
+  return out.set(
+   Math.sin(d*.0068)*120+Math.sin(d*.0027)*70+Math.sin(d*.015)*15,
+   Math.cos(d*.0076)*84+Math.sin(d*.0034)*52+Math.sin(d*.012)*14,
+   -d+Math.sin(d*.003)*32
+  );
  }
- function reset(){distance=0;velocity=0;camera.position.copy(center(0));camera.position.z+=8;camera.lookAt(center(100));camera.fov=72;camera.updateProjectionMatrix();}
+ function frame(d:number){
+  center(d+3,forwardPoint);center(d-3,backPoint);
+  tangent.copy(forwardPoint).sub(backPoint).normalize();
+  right.crossVectors(tangent,trackUp).normalize();
+  up.crossVectors(right,tangent).normalize();
+  const bank=Math.max(-.72,Math.min(.72,(Math.sin(d*.0068)*.52+Math.cos(d*.0076)*.45)));
+  const c=Math.cos(bank),sn=Math.sin(bank);
+  const rx=right.x,ry=right.y,rz=right.z;
+  right.set(rx*c+up.x*sn,ry*c+up.y*sn,rz*c+up.z*sn);
+  up.set(up.x*c-rx*sn,up.y*c-ry*sn,up.z*c-rz*sn);
+ }
+ function track(d,x,y,out:THREE.Vector3){
+  center(d,out);frame(d);
+  return out.addScaledVector(right,x).addScaledVector(up,y);
+ }
+ function reset(){distance=0;velocity=0;camera.position.copy(center(0));camera.lookAt(center(70));camera.fov=72;camera.updateProjectionMatrix();}
  function setEnabled(value:boolean){active=value;group.visible=value;if(value)reset();}
  function update(dt:number,time:number,bass:number,mid:number,treble:number,mood:Atmosphere){
   if(!active)return;
   const desired=16+mid*24+bass*54+mood.energy*16+mood.euphoria*21;
   velocity+=(desired-velocity)*(1-Math.exp(-dt*1.7));distance+=velocity*dt;
-  center(distance,cameraCurrent);
-  cameraCurrent.x+=Math.sin(time*.42)*(.3+mood.calm*.7);
-  cameraCurrent.y+=Math.cos(time*.32)*.5;cameraCurrent.z+=8;
-  camera.position.lerp(cameraCurrent,1-Math.exp(-dt*2.4));
-  center(distance+110,cameraTarget);
-  lookMatrix.lookAt(camera.position,cameraTarget,new THREE.Vector3(0,1,0));
+  track(distance,Math.sin(time*.37)*(.4+mood.calm*.9),Math.cos(time*.31)*.5,cameraCurrent);
+  camera.position.lerp(cameraCurrent,1-Math.exp(-dt*3.8));
+  center(distance+65,cameraTarget);
+  frame(distance+16);
+  lookMatrix.lookAt(camera.position,cameraTarget,up);
   desiredRotation.setFromRotationMatrix(lookMatrix);
   camera.quaternion.slerp(desiredRotation,1-Math.exp(-dt*2.0));
   const targetFov=70+Math.min(12,bass*15+mood.energy*7);
@@ -96,14 +116,15 @@ export function createJourney(scene:THREE.Scene,camera:THREE.PerspectiveCamera,m
   let n=0;
   for(let s=0;s<segmentCount;s++){
    const d=(start+s+1)*segmentLength;
-   const p=center(d);
    const radius=33+Math.sin(d*.005)*10+bass*10;
    const points=verticesPerRing/2;
    for(let k=0;k<points;k++){
     const a=k*Math.PI*2/points,b=(k+1)*Math.PI*2/points;
     const shape=(angle:number)=>1+Math.sin(angle*5+time*.22+d*.002)*(.07+mid*.12);
-    positions.set([p.x+Math.cos(a)*radius*shape(a),p.y+Math.sin(a)*radius*shape(a),p.z],n*3);
-    positions.set([p.x+Math.cos(b)*radius*shape(b),p.y+Math.sin(b)*radius*shape(b),p.z],(n+1)*3);
+    track(d,Math.cos(a)*radius*shape(a),Math.sin(a)*radius*shape(a),trackPoint);
+    positions.set([trackPoint.x,trackPoint.y,trackPoint.z],n*3);
+    track(d,Math.cos(b)*radius*shape(b),Math.sin(b)*radius*shape(b),trackPoint);
+    positions.set([trackPoint.x,trackPoint.y,trackPoint.z],(n+1)*3);
     const fade=.22+.55*Math.pow(Math.sin((s/segmentCount)*Math.PI),2);
     colors.set([tint.r*fade,tint.g*fade,tint.b*fade],n*3);
     colors.set([tint.r*fade,tint.g*fade,tint.b*fade],(n+1)*3);
@@ -118,14 +139,14 @@ export function createJourney(scene:THREE.Scene,camera:THREE.PerspectiveCamera,m
    const phase=j*2.39996;
    for(let k=0;k<strandSteps;k++){
     const d=distance+15+k*38;
-    const p=center(d);
     const angle=phase+d*.006*(j%2?1:-1)+time*.08;
     const r=44+Math.sin(d*.006+j)*12+bass*8;
-    const p2=center(d+38);
     const angle2=phase+(d+38)*.006*(j%2?1:-1)+time*.08;
     const r2=44+Math.sin((d+38)*.006+j)*12+bass*8;
-    strandPositions.set([p.x+Math.cos(angle)*r,p.y+Math.sin(angle)*r,p.z],n*3);
-    strandPositions.set([p2.x+Math.cos(angle2)*r2,p2.y+Math.sin(angle2)*r2,p2.z],(n+1)*3);
+    track(d,Math.cos(angle)*r,Math.sin(angle)*r,trackPoint);
+    strandPositions.set([trackPoint.x,trackPoint.y,trackPoint.z],n*3);
+    track(d+38,Math.cos(angle2)*r2,Math.sin(angle2)*r2,trackPoint);
+    strandPositions.set([trackPoint.x,trackPoint.y,trackPoint.z],(n+1)*3);
     n+=2;
    }
   }
@@ -136,8 +157,8 @@ export function createJourney(scene:THREE.Scene,camera:THREE.PerspectiveCamera,m
    const d=distance+((i*37.73)%1700)-100;
    const angle=i*2.39996+time*.035;
    const radius=16+((i*13.7)%145);
-   const p=center(d);
-   sparkPositions.set([p.x+Math.cos(angle)*radius,p.y+Math.sin(angle)*radius,p.z],i*3);
+   track(d,Math.cos(angle)*radius,Math.sin(angle)*radius,trackPoint);
+   sparkPositions.set([trackPoint.x,trackPoint.y,trackPoint.z],i*3);
   }
   sparkAttr.needsUpdate=true;sparkGeo.computeBoundingSphere();
   sparkMat.color.copy(tint);sparkMat.opacity=.35+treble*.5;
@@ -148,9 +169,12 @@ export function createJourney(scene:THREE.Scene,camera:THREE.PerspectiveCamera,m
    const d=(portalStart+i+1)*portalSpacing;
    const p=center(d);
    portal.position.copy(p);
+   frame(d);
+   lookMatrix.lookAt(p,forwardPoint,up);
+   portal.quaternion.setFromRotationMatrix(lookMatrix);
    const scale=100+Math.sin(d*.004)*30+bass*22;
    portal.scale.set(scale,scale,1);
-   portal.rotation.set(0,0,d*.003+time*.035*(i%2?1:-1));
+   portal.rotateZ(d*.003+time*.035*(i%2?1:-1));
    portal.material.uniforms.uTime.value=time;
    portal.material.uniforms.uEnergy.value=.25+mid*.8+bass*.9+mood.euphoria*.25;
    portal.material.uniforms.uTint.value.copy(tint);
