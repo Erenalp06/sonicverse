@@ -1,3 +1,4 @@
+import {createCosmicWorld} from './cosmicWorld';
 import {trending,searchTracks,streamUrl,type Track} from './audius';
 import * as THREE from 'three';
 import './style.css';
@@ -31,20 +32,9 @@ audio.addEventListener('ended',()=>{play.textContent='Oynat';if(selected>=0&&tra
 audio.addEventListener('error',()=>{if(audio.src)showError('Ses kaynağı yüklenemedi. Başka bir parça deneyin.');});
 const scene=new THREE.Scene();scene.background=new THREE.Color('#02040e');scene.fog=new THREE.FogExp2('#02040e',.0015);
 const camera=new THREE.PerspectiveCamera(72,innerWidth/innerHeight,.1,2200);camera.position.set(0,0,85);
-const renderer=new THREE.WebGLRenderer({antialias:true,powerPreference:'high-performance'});renderer.setPixelRatio(Math.min(devicePixelRatio,2));renderer.setSize(innerWidth,innerHeight);renderer.outputColorSpace=THREE.SRGBColorSpace;app.prepend(renderer.domElement);
-scene.add(new THREE.AmbientLight(0x738bff,.65));
-const light=new THREE.PointLight(0x7a7cff,90,250);scene.add(light);
+const renderer=new THREE.WebGLRenderer({antialias:true,powerPreference:'high-performance'});renderer.setPixelRatio(Math.min(devicePixelRatio,1.75));renderer.setSize(innerWidth,innerHeight);renderer.outputColorSpace=THREE.SRGBColorSpace;app.prepend(renderer.domElement);
 const mobile=/iPad|iPhone|Android/i.test(navigator.userAgent)||navigator.maxTouchPoints>1;
-const count=mobile?2400:7000;
-const positions=new Float32Array(count*3),colors=new Float32Array(count*3);
-const color=new THREE.Color();
-for(let i=0;i<count;i++){const r=80+Math.random()*900,theta=Math.random()*Math.PI*2,u=Math.random()*2-1,k=Math.sqrt(1-u*u);positions[i*3]=r*k*Math.cos(theta);positions[i*3+1]=r*u;positions[i*3+2]=r*k*Math.sin(theta);color.setHSL(.53+Math.random()*.25,.65,.6+Math.random()*.4);colors[i*3]=color.r;colors[i*3+1]=color.g;colors[i*3+2]=color.b;}
-const starsGeometry=new THREE.BufferGeometry();starsGeometry.setAttribute('position',new THREE.BufferAttribute(positions,3));starsGeometry.setAttribute('color',new THREE.BufferAttribute(colors,3));
-const stars=new THREE.Points(starsGeometry,new THREE.PointsMaterial({size:mobile?1.3:1.8,vertexColors:true,transparent:true,opacity:.85,sizeAttenuation:true,depthWrite:false}));scene.add(stars);
-const core=new THREE.Mesh(new THREE.IcosahedronGeometry(12,5),new THREE.MeshBasicMaterial({color:0x7166ff,wireframe:true,transparent:true,opacity:.7}));scene.add(core);
-const glow=new THREE.Mesh(new THREE.SphereGeometry(9,40,28),new THREE.MeshBasicMaterial({color:0x8e5fff,transparent:true,opacity:.26,depthWrite:false}));scene.add(glow);
-const rings:THREE.Mesh[]=[];
-for(let i=0;i<5;i++){const ring=new THREE.Mesh(new THREE.TorusGeometry(19+i*7,.15+i*.045,8,150),new THREE.MeshBasicMaterial({color:new THREE.Color().setHSL(.55+i*.045,.9,.65),transparent:true,opacity:.65,depthWrite:false}));ring.rotation.set(i*.4,i*.6,i*.2);rings.push(ring);scene.add(ring);}
+const world=createCosmicWorld(scene,mobile);
 let yaw=0,pitch=0;const keys=new Set<string>();const pointer=new Map<number,{x:number,y:number,side:string}>();
 addEventListener('keydown',e=>{if(['KeyW','KeyA','KeyS','KeyD','KeyQ','KeyE','ShiftLeft'].includes(e.code))e.preventDefault();keys.add(e.code);});
 addEventListener('keyup',e=>keys.delete(e.code));
@@ -63,8 +53,6 @@ forward.set(0,0,-1).applyQuaternion(camera.quaternion);right.set(1,0,0).applyQua
 if(keys.has('KeyW'))velocity.add(forward);if(keys.has('KeyS'))velocity.sub(forward);if(keys.has('KeyD'))velocity.add(right);if(keys.has('KeyA'))velocity.sub(right);if(keys.has('KeyE'))velocity.y+=1;if(keys.has('KeyQ'))velocity.y-=1;
 for(const p of pointer.values()){if(p.side==='move'){const x=(p.x-innerWidth*.21)/(innerWidth*.21),y=(p.y-innerHeight*.65)/(innerHeight*.4);velocity.addScaledVector(right,THREE.MathUtils.clamp(x,-1,1));velocity.addScaledVector(forward,THREE.MathUtils.clamp(-y,-1,1));}}
 if(velocity.lengthSq()>0)camera.position.addScaledVector(velocity.normalize(),dt*(keys.has('ShiftLeft')?110:42));
-core.rotation.x=t*.08;core.rotation.y=t*.15;const pulse=1+bass*.9;core.scale.setScalar(pulse);glow.scale.setScalar(1+bass*1.4);(glow.material as THREE.MeshBasicMaterial).opacity=.15+bass*.35;
-rings.forEach((r,i)=>{r.rotation.x+=dt*(.06+i*.018+mid*.25);r.rotation.y+=dt*(.09+i*.02+treble*.2);r.scale.setScalar(1+mid*.28+bass*.13);});
-stars.rotation.y+=dt*(.001+treble*.005);light.intensity=60+bass*180;renderer.render(scene,camera);}
+world.update(dt,t,{bass,mid,treble,beat:false},camera);renderer.render(scene,camera);}
 animate();
 addEventListener('resize',()=>{camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix();renderer.setSize(innerWidth,innerHeight);});
