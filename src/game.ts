@@ -1,10 +1,11 @@
+import {analyzeAudio,fallbackBeatMap,generateLevel,hashSeed,type BeatMap} from './levelGenerator';
 import {trending,searchTracks,streamUrl,type Track} from './audius';
 import './game.css';
 
 const root=document.querySelector<HTMLDivElement>('#app')!;
 root.innerHTML=`<canvas id="game" aria-label="SonicVerse ritim platform oyunu"></canvas>
 <div class="top"><div class="brand">SONIC<span>VERSE</span><small>RHYTHM RUNNER · 2D</small></div><div class="stats"><span id="score">00000</span><span id="percent">0%</span><span id="best">REKOR 0</span></div><button id="musicToggle">♫ MÜZİK</button></div>
-<div class="musicPanel" id="musicPanel"><div class="musicHead"><strong>Müzik seç</strong><button id="closeMusic">×</button></div><label class="upload">Dosyadan müzik yükle<input id="file" type="file" accept="audio/*"></label><div class="search"><input id="search" placeholder="Audius'ta şarkı ara"><button id="popular">Popüler</button></div><div id="results"></div><div id="song">Müzik seçilmedi · demo ritmi kullanılacak</div><div id="audioError"></div></div>
+<div class="musicPanel" id="musicPanel"><div class="musicHead"><strong>Müzik seç</strong><button id="closeMusic">×</button></div><label class="upload">Dosyadan müzik yükle<input id="file" type="file" accept="audio/*"></label><div class="search"><input id="search" placeholder="Audius'ta şarkı ara"><button id="popular">Popüler</button></div><div id="results"></div><div id="song">Müzik seçilmedi · demo harita kullanılacak</div><div id="levelInfo">Demo haritası hazır</div><div id="audioError"></div></div>
 <div class="bottom"><span>BOŞLUK / ↑ / DOKUN: ZIPLA</span><button id="pause">DURAKLAT</button><button id="restart">YENİDEN</button></div>
 <div class="overlay" id="overlay"><div class="hero"><span class="eyebrow">SONICVERSE // LEVEL 01</span><h1>NEON <em>RUSH</em></h1><p>Müzikle hızlanan, engellerle dolu bir neon dünyasında koş. Zıplamak için dokun veya boşluk tuşuna bas.</p><button id="start">OYUNA BAŞLA <span>→</span></button><small id="message">Engellere çarpmadan ilerle. Müzik seçmek isteğe bağlı.</small></div></div>`;
 
@@ -15,6 +16,12 @@ const overlay=$<HTMLDivElement>('overlay'),message=$<HTMLElement>('message'),sco
 const audio=new Audio();audio.crossOrigin='anonymous';audio.preload='metadata';
 let audioContext:AudioContext|undefined,analyser:AnalyserNode|undefined,frequency:Uint8Array<ArrayBuffer>|undefined;
 let objectUrl:string|undefined;
+let beatMap:BeatMap=fallbackBeatMap(hashSeed('sonicverse-demo'));
+let selectedSong='sonicverse-demo';
+let analyzing=false;
+const levelInfo=()=>document.getElementById('levelInfo')!;
+function setLevel(map:BeatMap){beatMap=map;levelInfo().textContent=`${map.bpm} BPM · ${map.source==='analysis'?'Şarkıdan oluşturulan':'Tahmini'} harita · ${Math.floor(map.duration)} sn`;if(mode==='playing'||mode==='paused')end(false);}
+async function prepareTrack(id:string){selectedSong=id;setLevel(fallbackBeatMap(hashSeed(id),audio.duration&&Number.isFinite(audio.duration)?audio.duration:95));levelInfo().textContent+=' · Audius akışı: tahmini ritim';}
 async function unlockAudio(){
  if(!audioContext){
   audioContext=new AudioContext();
@@ -28,13 +35,13 @@ const musicPanel=$<HTMLElement>('musicPanel');
 $('musicToggle').addEventListener('click',()=>musicPanel.classList.toggle('open'));
 $('closeMusic').addEventListener('click',()=>musicPanel.classList.remove('open'));
 let tracks:Track[]=[];
-function showTracks(list:Track[]){tracks=list;const container=$<HTMLElement>('results');container.replaceChildren();list.forEach((track,i)=>{const button=document.createElement('button');button.className='songItem';const img=document.createElement('img');if(track.artwork?.startsWith('https://'))img.src=track.artwork;img.alt='';const label=document.createElement('span');label.textContent=track.title+' — '+track.artist;button.append(img,label);button.addEventListener('click',async()=>{audio.pause();if(objectUrl){URL.revokeObjectURL(objectUrl);objectUrl=undefined;}audio.src=streamUrl(tracks[i].id);$('song').textContent=label.textContent;try{await unlockAudio();await audio.play();$('audioError').textContent='';musicPanel.classList.remove('open');}catch(e){$('audioError').textContent='Parça oynatılamadı: '+String(e);}});container.append(button);});}
+function showTracks(list:Track[]){tracks=list;const container=$<HTMLElement>('results');container.replaceChildren();list.forEach((track,i)=>{const button=document.createElement('button');button.className='songItem';const img=document.createElement('img');if(track.artwork?.startsWith('https://'))img.src=track.artwork;img.alt='';const label=document.createElement('span');label.textContent=track.title+' — '+track.artist;button.append(img,label);button.addEventListener('click',async()=>{audio.pause();if(objectUrl){URL.revokeObjectURL(objectUrl);objectUrl=undefined;}audio.src=streamUrl(tracks[i].id);void prepareTrack(tracks[i].id);$('song').textContent=label.textContent;try{await unlockAudio();await audio.play();$('audioError').textContent='';musicPanel.classList.remove('open');}catch(e){$('audioError').textContent='Parça oynatılamadı: '+String(e);}});container.append(button);});}
 let searchController:AbortController|undefined;
 async function loadMusic(query=''){searchController?.abort();searchController=new AbortController();try{showTracks(await(query?searchTracks(query,searchController.signal):trending(searchController.signal)));}catch(e){if((e as Error).name!=='AbortError')$('audioError').textContent='Audius bağlantısı kurulamadı.';}}
 let searchTimer=0;
 $<HTMLInputElement>('search').addEventListener('input',e=>{clearTimeout(searchTimer);searchTimer=window.setTimeout(()=>void loadMusic((e.target as HTMLInputElement).value.trim()),350);});
 $('popular').addEventListener('click',()=>void loadMusic());
-$<HTMLInputElement>('file').addEventListener('change',async e=>{const file=(e.target as HTMLInputElement).files?.[0];if(!file)return;audio.pause();if(objectUrl)URL.revokeObjectURL(objectUrl);objectUrl=URL.createObjectURL(file);audio.src=objectUrl;$('song').textContent=file.name;try{await unlockAudio();await audio.play();$('audioError').textContent='';musicPanel.classList.remove('open');}catch(e){$('audioError').textContent=String(e);}});
+$<HTMLInputElement>('file').addEventListener('change',async e=>{const file=(e.target as HTMLInputElement).files?.[0];if(!file)return;audio.pause();if(objectUrl)URL.revokeObjectURL(objectUrl);objectUrl=URL.createObjectURL(file);audio.src=objectUrl;selectedSong=file.name+':'+file.size;$('song').textContent=file.name;analyzing=true;levelInfo().textContent='Şarkı analiz ediliyor...';try{const bytes=await file.arrayBuffer();const map=await analyzeAudio(bytes,hashSeed(selectedSong));setLevel(map);}catch(error){setLevel(fallbackBeatMap(hashSeed(selectedSong)));$('audioError').textContent='Analiz başarısız, tahmini harita kullanılıyor: '+String(error);}finally{analyzing=false;}try{await unlockAudio();await audio.play();$('audioError').textContent='';musicPanel.classList.remove('open');}catch(e){$('audioError').textContent=String(e);}});
 void loadMusic();
 
 let w=0,h=0,dpr=1,scale=1,ground=0;
@@ -47,16 +54,17 @@ let obstacles:Obstacle[]=[],particles:Particle[]=[];
 let mode:'menu'|'playing'|'paused'|'dead'|'won'='menu';
 let player={x:0,y:0,vy:0,size:36,angle:0,onGround:true};
 let distance=0,score=0,best=0,spawnAt=0,beat=0,energy=0,mid=0,treble=0,last=0,elapsed=0,shake=0;
-const levelLength=13500;
+let levelLength=13500;
+const levelSpeed=330;
 try{best=Number(localStorage.getItem('sonicverse-best')||0)||0;}catch{}
 bestEl.textContent='REKOR '+best;
 const rand=(a:number,b:number)=>a+Math.random()*(b-a);
-function reset(){distance=0;score=0;spawnAt=680;elapsed=0;obstacles=[];particles=[];player={x:Math.min(w*.24,290),y:ground-36,vy:0,size:36,angle:0,onGround:true};shake=0;mode='playing';overlay.classList.add('hidden');}
-function start(){reset();if(audio.src&&audio.paused)void unlockAudio().then(()=>audio.play()).catch(()=>{});}
-function end(won:boolean){mode=won?'won':'dead';overlay.classList.remove('hidden');overlay.querySelector('h1')!.innerHTML=won?'LEVEL <em>TAMAMLANDI</em>':'OYUN <em>BİTTİ</em>';message.textContent=won?'Harika! Yeni bir tur için tekrar başla.':'Skor '+score+' · Yeniden dene ve rekorunu geliştir.';$('start').textContent='TEKRAR OYNA →';if(score>best){best=score;try{localStorage.setItem('sonicverse-best',String(best));}catch{}}bestEl.textContent='REKOR '+best;}
+function reset(){distance=0;score=0;spawnAt=Infinity;elapsed=0;levelLength=beatMap.duration*levelSpeed;obstacles=generateLevel(beatMap,levelSpeed);particles=[];player={x:Math.min(w*.24,290),y:ground-36,vy:0,size:36,angle:0,onGround:true};shake=0;mode='playing';overlay.classList.add('hidden');}
+function start(){if(analyzing)return;audio.pause();try{audio.currentTime=0;}catch{}reset();if(audio.src)void unlockAudio().then(()=>audio.play()).catch(()=>{});}
+function end(won:boolean){audio.pause();mode=won?'won':'dead';overlay.classList.remove('hidden');overlay.querySelector('h1')!.innerHTML=won?'LEVEL <em>TAMAMLANDI</em>':'OYUN <em>BİTTİ</em>';message.textContent=won?'Harika! Yeni bir tur için tekrar başla.':'Skor '+score+' · Yeniden dene ve rekorunu geliştir.';$('start').textContent='TEKRAR OYNA →';if(score>best){best=score;try{localStorage.setItem('sonicverse-best',String(best));}catch{}}bestEl.textContent='REKOR '+best;}
 function jump(){if(mode==='menu'||mode==='dead'||mode==='won'){start();return;}if(mode==='paused'){mode='playing';return;}if(player.onGround){player.vy=-760;player.onGround=false;for(let i=0;i<10;i++)particles.push({x:player.x+18,y:ground,vx:rand(-130,60),vy:rand(-120,0),life:rand(.25,.6),hue:185});}}
 $('start').addEventListener('click',start);$('restart').addEventListener('click',start);
-$('pause').addEventListener('click',()=>{if(mode==='playing')mode='paused';else if(mode==='paused')mode='playing';$('pause').textContent=mode==='paused'?'DEVAM':'DURAKLAT';});
+$('pause').addEventListener('click',()=>{if(mode==='playing'){mode='paused';audio.pause();}else if(mode==='paused'){mode='playing';if(audio.src)void audio.play().catch(()=>{});}$('pause').textContent=mode==='paused'?'DEVAM':'DURAKLAT';});
 addEventListener('keydown',e=>{if(['Space','ArrowUp','KeyW'].includes(e.code)){if((e.target as HTMLElement)?.matches('input'))return;e.preventDefault();if(!e.repeat)jump();}if(e.code==='KeyP')$('pause').click();});
 canvas.addEventListener('pointerdown',e=>{e.preventDefault();jump();});
 
@@ -83,16 +91,16 @@ function collide(o:Obstacle,screenX:number){
 function update(dt:number){
  elapsed+=dt;audioLevels(dt);
  if(mode!=='playing')return;
- const speed=290+Math.min(110,beat*125+energy*90);
+ const speed=levelSpeed;
  distance+=speed*dt;
  score=Math.floor(distance/8);scoreEl.textContent=String(score).padStart(5,'0');percentEl.textContent=Math.min(100,Math.floor(distance/levelLength*100))+'%';
  if(distance>=levelLength){end(true);return;}
- while(spawnAt<distance+w+500)addObstacle();
+ // Obstacles are precomputed from the song's beat map.
  player.vy+=1850*dt;player.y+=player.vy*dt;
  if(player.y>=ground-player.size){player.y=ground-player.size;player.vy=0;player.onGround=true;player.angle+=(Math.round(player.angle/(Math.PI/2))*(Math.PI/2)-player.angle)*Math.min(1,dt*18);}
  else player.angle+=dt*7;
- for(const o of obstacles){const x=o.x-distance+player.x+420;if(!o.passed&&x+o.w<player.x){o.passed=true;score+=25;}if(collide(o,x)){shake=16;for(let i=0;i<36;i++)particles.push({x:player.x+18,y:player.y+18,vx:rand(-320,320),vy:rand(-330,250),life:rand(.35,.85),hue:rand(180,330)});end(false);break;}}
- obstacles=obstacles.filter(o=>o.x-distance+player.x+420>-140);
+ for(const o of obstacles){const x=o.x-distance+player.x;if(!o.passed&&x+o.w<player.x){o.passed=true;score+=25;}if(collide(o,x)){shake=16;for(let i=0;i<36;i++)particles.push({x:player.x+18,y:player.y+18,vx:rand(-320,320),vy:rand(-330,250),life:rand(.35,.85),hue:rand(180,330)});end(false);break;}}
+ obstacles=obstacles.filter(o=>o.x-distance+player.x>-140);
  if(Math.random()<.7)particles.push({x:rand(0,w),y:rand(0,ground),vx:-rand(40,180),vy:0,life:rand(.3,1),hue:rand(185,300)});
  for(const p of particles){p.x+=p.vx*dt;p.y+=p.vy*dt;p.life-=dt;}particles=particles.filter(p=>p.life>0).slice(-300);
  shake*=Math.exp(-dt*14);
@@ -117,7 +125,7 @@ function draw(){
  const base=ground;ctx.fillStyle='#0a102b';ctx.fillRect(0,base,w,h-base);ctx.shadowBlur=22;ctx.shadowColor='#31dcff';ctx.strokeStyle='#43dfff';ctx.lineWidth=3;ctx.beginPath();ctx.moveTo(0,base);ctx.lineTo(w,base);ctx.stroke();ctx.shadowBlur=0;
  const grid=60;ctx.strokeStyle='rgba(62,169,250,.13)';ctx.lineWidth=1;for(let x=-(distance*.7%grid);x<w;x+=grid){ctx.beginPath();ctx.moveTo(x,base);ctx.lineTo(x+80,h);ctx.stroke();}
  for(let y=base+30;y<h;y+=30){ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(w,y);ctx.stroke();}
- for(const o of obstacles){const x=o.x-distance+player.x+420;if(x<-100||x>w+100)continue;ctx.save();ctx.shadowColor=o.type==='orb'?'#fda8f9':'#ff3f9e';ctx.shadowBlur=14+beat*20;ctx.fillStyle=o.type==='orb'?'#d46aff':'#ff468e';ctx.strokeStyle='#ffb5dd';ctx.lineWidth=2;
+ for(const o of obstacles){const x=o.x-distance+player.x;if(x<-100||x>w+100)continue;ctx.save();ctx.shadowColor=o.type==='orb'?'#fda8f9':'#ff3f9e';ctx.shadowBlur=14+beat*20;ctx.fillStyle=o.type==='orb'?'#d46aff':'#ff468e';ctx.strokeStyle='#ffb5dd';ctx.lineWidth=2;
  if(o.type==='block'){ctx.fillRect(x,base-o.h,o.w,o.h);ctx.strokeRect(x,base-o.h,o.w,o.h);ctx.fillStyle='#1b1035';ctx.fillRect(x+9,base-o.h+10,o.w-18,o.h-20);}
  else if(o.type==='orb'){polygon(x+o.w/2,base-o.h/2,o.w*.52,6,elapsed);ctx.fill();ctx.stroke();}
  else{const count=o.type==='double'?2:1;for(let j=0;j<count;j++){const sx=x+j*41;ctx.beginPath();ctx.moveTo(sx,base);ctx.lineTo(sx+21,base-o.h);ctx.lineTo(sx+42,base);ctx.closePath();ctx.fill();ctx.stroke();}}
