@@ -45,10 +45,10 @@ float noise(vec3 p){
 void main(){
  vec3 p=normalize(vPos);float n=noise(p*5.+uTime*.018);
  n+=.52*noise(p*11.-uTime*.025);n+=.23*noise(p*25.+uTime*.012);
- float filaments=smoothstep(.59,.99,n);
- float alpha=filaments*(.10+uMid*.19)+smoothstep(.77,1.15,n)*(.12+uBass*.18);
- vec3 col=mix(uColor,vec3(.28,.62,1.),smoothstep(.6,1.05,n));
- gl_FragColor=vec4(col*(.55+uBass*.9),alpha);
+ float filaments=smoothstep(.91,1.28,n);
+ float region=smoothstep(.18,.78,noise(p*2.1+vec3(2.7,1.3,4.1)));\n float alpha=region*(filaments*(.015+uMid*.026)+smoothstep(1.10,1.42,n)*(.016+uBass*.032));
+ vec3 col=mix(uColor,vec3(.13,.35,.65),smoothstep(.85,1.28,n));
+ gl_FragColor=vec4(col*(.38+uBass*.28),alpha);
 }`;
 const particleVertex=`
 attribute float aPhase;
@@ -89,9 +89,9 @@ export function createCosmicWorld(scene:THREE.Scene,mobile:boolean):CosmicWorld{
  const starsMat=new THREE.ShaderMaterial({vertexShader:starVertex,fragmentShader:starFragment,uniforms:{uTime:uniforms.uTime},vertexColors:true,transparent:true,depthWrite:false,blending:THREE.AdditiveBlending});
  const stars=new THREE.Points(starsGeo,starsMat);scene.add(stars);disposables.push(starsGeo,starsMat);
  const nebulae:THREE.Mesh[]=[];
- for(let i=0;i<3;i++){
-  const geometry=new THREE.SphereGeometry(410+i*135,mobile?32:56,mobile?20:36);
-  const material=new THREE.ShaderMaterial({vertexShader:nebulaVertex,fragmentShader:nebulaFragment,uniforms:{...uniforms,uColor:{value:new THREE.Color([0x7243b8,0x156aaf,0x9a3c7b][i])}},transparent:true,side:THREE.BackSide,depthWrite:false,blending:THREE.AdditiveBlending});
+ for(let i=0;i<2;i++){
+  const geometry=new THREE.SphereGeometry(650+i*210,mobile?32:56,mobile?20:36);
+  const material=new THREE.ShaderMaterial({vertexShader:nebulaVertex,fragmentShader:nebulaFragment,uniforms:{...uniforms,uColor:{value:new THREE.Color([0x513777,0x18416a][i])}},transparent:true,side:THREE.BackSide,depthWrite:false,blending:THREE.AdditiveBlending});
   const mesh=new THREE.Mesh(geometry,material);mesh.rotation.set(i*.9,i*1.4,i*.3);scene.add(mesh);nebulae.push(mesh);disposables.push(geometry,material);
  }
  const count=mobile?1800:3900;
@@ -106,6 +106,16 @@ export function createCosmicWorld(scene:THREE.Scene,mobile:boolean):CosmicWorld{
  const innerGeo=new THREE.SphereGeometry(8,32,24);
  const innerMat=new THREE.MeshBasicMaterial({color:0x5135e6,transparent:true,opacity:.27,depthWrite:false,blending:THREE.AdditiveBlending});
  const inner=new THREE.Mesh(innerGeo,innerMat);scene.add(inner);disposables.push(innerGeo,innerMat);
+ const destinations=[
+  {name:'Plazma Kalbi',position:new THREE.Vector3(0,0,85)},
+  {name:'Mor Ufuk',position:new THREE.Vector3(260,95,-190)},
+  {name:'Mavi Sessizlik',position:new THREE.Vector3(-330,-60,-250)},
+  {name:'Derin Boşluk',position:new THREE.Vector3(110,160,-540)}
+ ];
+ const markerGeo=new THREE.OctahedronGeometry(4,1);
+ const markerMat=new THREE.MeshBasicMaterial({color:0x9db6ff,wireframe:true,transparent:true,opacity:.6});
+ const markers=destinations.slice(1).map((d,i)=>{const m=new THREE.Mesh(markerGeo,markerMat);m.position.copy(d.position);scene.add(m);return m;});
+ disposables.push(markerGeo,markerMat);
  const shockGeo=new THREE.RingGeometry(1,1.045,96);
  const shockMat=new THREE.MeshBasicMaterial({color:0x8fc9ff,side:THREE.DoubleSide,transparent:true,opacity:0,depthWrite:false,blending:THREE.AdditiveBlending});
  const shock=new THREE.Mesh(shockGeo,shockMat);scene.add(shock);disposables.push(shockGeo,shockMat);
@@ -114,7 +124,7 @@ export function createCosmicWorld(scene:THREE.Scene,mobile:boolean):CosmicWorld{
   uniforms.uTime.value=time;uniforms.uBass.value=bands.bass;uniforms.uMid.value=bands.mid;
   stars.rotation.y+=dt*(.001+bands.treble*.012);
   nebulae.forEach((n,i)=>{n.rotation.y+=dt*(i%2?-.002:.003);n.rotation.z+=dt*.001;});
-  core.rotation.y+=dt*(.05+bands.mid*.18);core.rotation.x+=dt*.025;
+  markers.forEach((m,i)=>{m.rotation.y+=dt*(.15+i*.04);m.rotation.x+=dt*.08;m.scale.setScalar(1+bands.mid*.25);});\n  core.rotation.y+=dt*(.05+bands.mid*.18);core.rotation.x+=dt*.025;
   inner.scale.setScalar(1+bands.bass*.55);innerMat.opacity=.13+bands.bass*.25;
   beatCooldown=Math.max(0,beatCooldown-dt);
   if((bands.beat||(bands.bass>.26&&bands.bass-previousBass>.085))&&beatCooldown===0){shockAge=0;beatCooldown=.26;}
@@ -123,5 +133,5 @@ export function createCosmicWorld(scene:THREE.Scene,mobile:boolean):CosmicWorld{
   shock.visible=shockAge<1.4;
   if(shock.visible){shock.position.set(0,0,0);shock.quaternion.copy(camera.quaternion);shock.scale.setScalar(12+shockAge*88);shockMat.opacity=.62*Math.pow(1-shockAge/1.4,2);}
  }
- return {update,dispose(){[stars,core,inner,shock,...nebulae].forEach(o=>scene.remove(o));disposables.forEach(o=>o.dispose());}};
+ return {update,dispose(){[stars,core,inner,shock,...nebulae,...markers].forEach(o=>scene.remove(o));disposables.forEach(o=>o.dispose());}};
 }
