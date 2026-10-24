@@ -129,7 +129,7 @@ export function createCosmicWorld(scene:THREE.Scene,mobile:boolean):CosmicWorld{
   uniforms.uTime.value=time;uniforms.uBass.value=bands.bass;uniforms.uMid.value=bands.mid;
   const weights=[atmosphere.calm,atmosphere.energy,atmosphere.melancholy,atmosphere.euphoria];
   moodColor.setRGB(0,0,0);
-  palette.forEach((c,i)=>moodColor.r+=c.r*weights[i],moodColor.g+=c.g*weights[i],moodColor.b+=c.b*weights[i]);
+  palette.forEach((c,i)=>{moodColor.r+=c.r*weights[i];moodColor.g+=c.g*weights[i];moodColor.b+=c.b*weights[i];});
   uniforms.uMoodGlow.value=.55+atmosphere.intensity*.75;
   nebulae.forEach((n,i)=>{const material=n.material as THREE.ShaderMaterial;const tint=moodColor.clone().multiplyScalar(i===0?.85:.55);material.uniforms.uColor.value.copy(tint);});
   innerMat.color.lerp(moodColor,1-Math.exp(-dt*.5));
